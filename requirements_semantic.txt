@@ -1,0 +1,17 @@
+# 기존 패키지
+fastapi==0.104.1
+uvicorn==0.24.0
+jinja2==3.1.2
+python-multipart==0.0.6
+
+# 시맨틱 검색 (100% 무료, 로컬)
+sentence-transformers==2.2.2
+faiss-cpu==1.7.4
+langchain==0.1.0
+tiktoken==0.5.2
+
+# PDF/문서 처리
+PyMuPDF==1.23.8
+pdfplumber==0.10.3
+
+

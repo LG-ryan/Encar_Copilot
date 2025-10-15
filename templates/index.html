@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Encar Copilot (엔디) - 사내 지식 어시스턴트</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Google Fonts - Noto Sans KR -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600;700&display=swap" rel="stylesheet">
+    
+    <style>
+        * {
+            font-family: 'Noto Sans KR', sans-serif;
+        }
+        
+        :root {
+            --encar-red: #d92929;
+        }
+        
+        .encar-red {
+            color: var(--encar-red);
+        }
+        
+        .bg-encar-red {
+            background-color: var(--encar-red);
+        }
+        
+        .border-encar-red {
+            border-color: var(--encar-red);
+        }
+        
+        .hover-encar-red:hover {
+            background-color: #b82323;
+        }
+        
+        /* 채팅 애니메이션 */
+        .fade-in {
+            animation: fadeIn 0.3s ease-in;
+        }
+        
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        @keyframes fadeInScale {
+            from {
+                opacity: 0;
+                transform: scale(0.9);
+            }
+            to {
+                opacity: 1;
+                transform: scale(1);
+            }
+        }
+        
+        .animate-fade-in {
+            animation: fadeInScale 0.3s ease-out;
+        }
+        
+        /* 스크롤바 스타일 */
+        .chat-container::-webkit-scrollbar {
+            width: 6px;
+        }
+        
+        .chat-container::-webkit-scrollbar-track {
+            background: #f1f1f1;
+        }
+        
+        .chat-container::-webkit-scrollbar-thumb {
+            background: #888;
+            border-radius: 3px;
+        }
+        
+        .chat-container::-webkit-scrollbar-thumb:hover {
+            background: #555;
+        }
+    </style>
+</head>
+<body class="bg-gray-50">
+    
+    <!-- 헤더 -->
+    <header class="bg-gradient-to-r from-red-600 to-red-700 text-white shadow-lg sticky top-0 z-50">
+        <div class="max-w-7xl mx-auto px-6 py-5">
+            <div class="flex justify-between items-center">
+                <div class="flex items-center space-x-4">
+                    <div class="bg-white rounded-full p-3 shadow-md">
+                        <span class="text-3xl font-bold text-red-600">E</span>
+                    </div>
+                    <div>
+                        <h1 class="text-2xl font-bold">Encar Copilot</h1>
+                        <p class="text-red-100 text-sm">엔디(Endy)가 도와드릴게요 🚀</p>
+                    </div>
+                </div>
+                <div id="userInfo" class="hidden flex items-center space-x-3">
+                    <span id="teamName" class="text-sm font-medium bg-white/20 px-4 py-2 rounded-lg"></span>
+                    <div class="w-px h-6 bg-white/50"></div>
+                    <span id="userName" class="text-sm font-medium"></span>
+                    <button id="logoutBtn" class="text-sm bg-white/20 hover:bg-white/40 hover:shadow-lg px-4 py-2 rounded-lg transition active:scale-95">
+                        로그아웃
+                    </button>
+                </div>
+            </div>
+        </div>
+    </header>
+    
+    <!-- 로그인 모달 -->
+    <div id="loginModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div class="bg-white rounded-lg shadow-xl p-8 max-w-md w-full mx-4">
+            <h2 class="text-2xl font-bold text-gray-800 mb-2">환영합니다! 👋</h2>
+                    <p class="text-gray-600 mb-6">엔디(Endy)를 이용하시려면 로그인해주세요</p>
+            
+            <form onsubmit="handleLogin(event)" class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">사번</label>
+                    <input 
+                        type="text" 
+                        id="employeeId" 
+                        required
+                        placeholder="예: 2024001"
+                        class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
+                    >
+                </div>
+                
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">이름</label>
+                    <input 
+                        type="text" 
+                        id="employeeName" 
+                        required
+                        placeholder="예: 김철수"
+                        class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
+                    >
+                </div>
+                
+                <div id="loginError" class="hidden bg-red-50 border-l-4 border-red-600 p-3 rounded text-red-700 text-sm">
+                    <div class="flex items-start">
+                        <svg class="w-5 h-5 mr-2 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd"/>
+                        </svg>
+                        <span id="loginErrorText"></span>
+                    </div>
+                </div>
+                
+                <button 
+                    type="submit"
+                    id="loginSubmitBtn"
+                    class="w-full bg-encar-red hover-encar-red text-white font-medium py-3 rounded-lg transition active:scale-98 focus:ring-2 focus:ring-red-500 focus:ring-offset-2 focus:outline-none flex items-center justify-center"
+                >
+                    <span id="loginText">로그인</span>
+                    <svg id="loginSpinner" class="hidden animate-spin h-5 w-5 ml-2" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                </button>
+            </form>
+            
+            <div class="mt-4 text-xs text-gray-500 text-center">
+                <p>💡 테스트 계정: 사번 2024001, 이름 김철수</p>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 메인 컨테이너 -->
+    <main class="container mx-auto px-6 py-4 max-w-3xl h-[calc(100vh-140px)] flex flex-col">
+        
+        <!-- 카테고리 필터 (항상 표시) -->
+        <div class="bg-white rounded-lg shadow-sm border border-gray-200 py-2 px-3 mb-3 flex-shrink-0">
+            <div class="flex flex-wrap gap-1.5">
+                <button onclick="filterCategory('all')" 
+                        class="category-filter px-3 py-1.5 rounded-md text-xs font-medium transition bg-red-600 text-white hover:bg-red-700 active:scale-95 focus:ring-2 focus:ring-red-500 focus:ring-offset-1 focus:outline-none"
+                        data-category="all">
+                    전체
+                </button>
+                <button onclick="filterCategory('HR')" 
+                        class="category-filter px-3 py-1.5 rounded-md text-xs font-medium transition bg-gray-100 text-gray-700 hover:bg-gray-200 active:scale-95 focus:ring-2 focus:ring-gray-400 focus:ring-offset-1 focus:outline-none"
+                        data-category="HR">
+                    HR
+                </button>
+                <button onclick="filterCategory('IT')" 
+                        class="category-filter px-3 py-1.5 rounded-md text-xs font-medium transition bg-gray-100 text-gray-700 hover:bg-gray-200 active:scale-95 focus:ring-2 focus:ring-gray-400 focus:ring-offset-1 focus:outline-none"
+                        data-category="IT">
+                    IT
+                </button>
+                <button onclick="filterCategory('총무')" 
+                        class="category-filter px-3 py-1.5 rounded-md text-xs font-medium transition bg-gray-100 text-gray-700 hover:bg-gray-200 active:scale-95 focus:ring-2 focus:ring-gray-400 focus:ring-offset-1 focus:outline-none"
+                        data-category="총무">
+                    총무
+                </button>
+                <button onclick="filterCategory('복리후생')" 
+                        class="category-filter px-3 py-1.5 rounded-md text-xs font-medium transition bg-gray-100 text-gray-700 hover:bg-gray-200 active:scale-95 focus:ring-2 focus:ring-gray-400 focus:ring-offset-1 focus:outline-none"
+                        data-category="복리후생">
+                    복리후생
+                </button>
+            </div>
+        </div>
+        
+        <!-- 안내 카드 -->
+        <div id="welcomeCard" class="bg-white rounded-lg shadow-sm p-6 mb-4">
+            <h2 class="text-2xl font-bold text-gray-800 mb-4">엔카 생활, 궁금한 게 있으신가요? 💬</h2>
+            <p class="text-gray-600 mb-6 leading-relaxed">
+                HR, IT, 총무, 복리후생 등 회사 정보를 빠르게 찾아드려요!
+            </p>
+            
+            <!-- 예시 질문 -->
+            <div>
+                <p class="text-sm font-medium text-gray-700 mb-3">💬 자주 묻는 질문</p>
+                <div class="grid grid-cols-2 gap-3" id="exampleQuestionsContainer">
+                    <button onclick="askSampleQuestion('연차는 언제 생기나요?')" 
+                            class="example-question-btn text-left px-4 py-3 bg-gray-50 hover:bg-red-50 hover:border-red-200 rounded-lg text-sm text-gray-700 hover:text-red-600 transition border border-gray-200"
+                            data-category="HR">
+                        💼 연차는 언제 생기나요?
+                    </button>
+                    <button onclick="askSampleQuestion('와이파이 비밀번호가 뭐예요?')" 
+                            class="example-question-btn text-left px-4 py-3 bg-gray-50 hover:bg-red-50 hover:border-red-200 rounded-lg text-sm text-gray-700 hover:text-red-600 transition border border-gray-200"
+                            data-category="IT">
+                        🔐 와이파이 비밀번호
+                    </button>
+                    <button onclick="askSampleQuestion('휴가는 어떻게 신청하나요?')" 
+                            class="example-question-btn text-left px-4 py-3 bg-gray-50 hover:bg-red-50 hover:border-red-200 rounded-lg text-sm text-gray-700 hover:text-red-600 transition border border-gray-200"
+                            data-category="HR">
+                        🏖️ 휴가 신청 방법
+                    </button>
+                    <button onclick="askSampleQuestion('자기계발비는 어떻게 사용하나요?')" 
+                            class="example-question-btn text-left px-4 py-3 bg-gray-50 hover:bg-red-50 hover:border-red-200 rounded-lg text-sm text-gray-700 hover:text-red-600 transition border border-gray-200"
+                            data-category="복리후생">
+                        🎁 자기계발비는 어떻게 사용하나요?
+                    </button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 채팅 영역 -->
+        <div id="chatArea" class="hidden flex-1 overflow-hidden mb-3">
+            <div class="bg-white rounded-lg shadow-sm border border-gray-200 h-full flex flex-col">
+                <div class="chat-container p-4 flex-1 overflow-y-auto" id="chatMessages" style="min-height: 500px;">
+                    <!-- 채팅 메시지가 여기에 추가됩니다 -->
+                </div>
+            </div>
+        </div>
+        
+        <!-- 입력 영역 -->
+        <div class="relative flex-shrink-0">
+            <form onsubmit="handleQuestion(event)">
+                <!-- 자동완성 목록 -->
+                <div id="autocompleteList" class="absolute bottom-full left-0 right-0 mb-2 bg-white border rounded-lg shadow-lg hidden max-h-64 overflow-y-auto z-20">
+                    <!-- 자동완성 항목이 여기에 추가됩니다 -->
+                </div>
+                
+                <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-3">
+                    <div class="flex space-x-2">
+                        <input 
+                            type="text" 
+                            id="questionInput" 
+                            placeholder="엔디(Endy)에게 물어보기..."
+                            maxlength="200"
+                            class="flex-1 px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent text-sm"
+                            required
+                            autocomplete="off"
+                        >
+                        <button 
+                            type="submit" 
+                            id="submitBtn"
+                            class="bg-red-600 hover:bg-red-700 text-white px-5 py-2.5 rounded-lg font-medium transition active:scale-95 focus:ring-2 focus:ring-red-500 focus:ring-offset-2 focus:outline-none"
+                        >
+                            <span id="submitText">전송</span>
+                            <svg id="submitSpinner" class="hidden animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                        </button>
+                    </div>
+                    
+                    <!-- 글자 수 카운터 -->
+                    <div class="flex justify-end items-center mt-1.5">
+                        <span id="charCount" class="text-xs text-gray-400">0/200자</span>
+                    </div>
+                </div>
+            </form>
+        </div>
+        
+    </main>
+    
+    <!-- 푸터 -->
+    <footer class="container mx-auto px-4 py-4 text-center text-xs text-gray-400">
+        <p>© 2025 Encar Corporation</p>
+    </footer>
+    
+    <!-- Marked.js (마크다운 렌더링) -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    
+    <!-- JavaScript -->
+    <script src="/static/js/app.js"></script>
+    
+</body>
+</html>
+

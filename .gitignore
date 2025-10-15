@@ -1,0 +1,61 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# 가상환경
+venv/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# 데이터 (민감 정보)
+data/users.json
+data/feedback.json
+
+# 시맨틱 인덱스 (용량 큼, 자동 생성)
+data/semantic_index/
+
+# 로그
+*.log
+logs/
+
+# 환경 변수
+.env
+
+# 임시 파일
+*.tmp
+*.bak
+*.backup
+
+# Jupyter Notebook
+.ipynb_checkpoints

@@ -1,0 +1,202 @@
+/**
+ * Encar Copilot (Endy) - 커스텀 스타일
+ * 추가적인 스타일링이 필요한 경우 여기에 작성
+ */
+
+/* Encar 브랜드 컬러 */
+:root {
+    --encar-red: #d92929;
+    --encar-red-hover: #b82323;
+}
+
+/* 전역 스타일 - 모든 요소에 폰트 통일 */
+*, *::before, *::after {
+    font-family: 'Noto Sans KR', sans-serif !important;
+}
+
+body, input, textarea, button, select {
+    font-family: 'Noto Sans KR', sans-serif !important;
+}
+
+/* 애니메이션 */
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.fade-in {
+    animation: fadeIn 0.3s ease-in;
+}
+
+/* 스크롤바 스타일 */
+.chat-container::-webkit-scrollbar {
+    width: 10px;
+}
+
+.chat-container::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 3px;
+}
+
+.chat-container::-webkit-scrollbar-thumb {
+    background: #888;
+    border-radius: 3px;
+}
+
+.chat-container::-webkit-scrollbar-thumb:hover {
+    background: #555;
+}
+
+/* 버튼 스타일 */
+.btn-encar {
+    background-color: var(--encar-red);
+    color: white;
+    transition: background-color 0.2s;
+}
+
+.btn-encar:hover {
+    background-color: var(--encar-red-hover);
+}
+
+/* 링크 스타일 */
+a {
+    transition: color 0.2s;
+}
+
+/* 웹 전용 - 모바일 반응형 제거 */
+
+/* 마크다운 답변 스타일 - 타이포그래피 계층 */
+.answer-text {
+    line-height: 1.8;  /* 1.6 → 1.8 */
+    font-size: 13px;   /* 기존 크기 유지 */
+    color: #374151;    /* 더 진한 회색 */
+    font-weight: 400;
+}
+
+.answer-text p {
+    margin-bottom: 12px;  /* 8px 배수 */
+}
+
+.answer-text p:last-child {
+    margin-bottom: 0;
+}
+
+.answer-text strong {
+    font-weight: 600;
+    color: #1f2937;  /* 진한 회색 */
+}
+
+.answer-text em {
+    font-style: italic;
+}
+
+.answer-text h1, .answer-text h2, .answer-text h3 {
+    font-weight: 600;
+    margin-top: 16px;     /* 8px 배수 */
+    margin-bottom: 8px;   /* 8px 배수 */
+    color: #1f2937;
+}
+
+.answer-text h1 {
+    font-size: 18px;      /* 계층 명확화 */
+}
+
+.answer-text h2 {
+    font-size: 16px;
+}
+
+.answer-text h3 {
+    font-size: 15px;
+}
+
+.answer-text ul, .answer-text ol {
+    margin-left: 24px;          /* 8px 배수 */
+    margin-bottom: 16px;        /* 8px 배수 */
+    list-style-position: outside;
+}
+
+.answer-text ul {
+    list-style-type: disc;
+}
+
+.answer-text ol {
+    list-style-type: decimal;
+}
+
+.answer-text li {
+    margin-bottom: 8px;         /* 8px 배수 */
+    padding-left: 4px;          /* 8px 배수 */
+    line-height: 1.8;           /* 통일 */
+}
+
+.answer-text code {
+    background-color: #f3f4f6;
+    padding: 0.125rem 0.375rem;
+    border-radius: 0.25rem;
+    font-size: 0.875rem;
+    font-family: 'Noto Sans KR', sans-serif !important;
+    color: #dc2626;
+}
+
+.answer-text pre {
+    background-color: #f3f4f6;
+    padding: 0.75rem;
+    border-radius: 0.375rem;
+    overflow-x: auto;
+    margin-bottom: 0.75rem;
+}
+
+.answer-text pre code {
+    background-color: transparent;
+    padding: 0;
+    color: inherit;
+}
+
+.answer-text hr {
+    border: none;
+    border-top: 2px solid #e5e7eb;
+    margin: 1.25rem 0;
+}
+
+.answer-text blockquote {
+    border-left: 4px solid var(--encar-red);
+    padding-left: 1rem;
+    margin-left: 0;
+    margin-bottom: 0.75rem;
+    color: #6b7280;
+    font-style: italic;
+}
+
+.answer-text a {
+    color: var(--encar-red);
+    text-decoration: underline;
+}
+
+.answer-text a:hover {
+    color: var(--encar-red-hover);
+}
+
+.answer-text table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 0.75rem;
+}
+
+.answer-text table th,
+.answer-text table td {
+    border: 1px solid #e5e7eb;
+    padding: 0.5rem;
+    text-align: left;
+}
+
+.answer-text table th {
+    background-color: #f9fafb;
+    font-weight: 600;
+}
+

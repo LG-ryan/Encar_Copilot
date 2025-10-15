@@ -1,0 +1,25 @@
+# FastAPI 및 서버
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+python-multipart==0.0.6
+
+# 데이터 처리
+pydantic==2.5.0
+python-dotenv==1.0.0
+
+# 보안 및 인증
+passlib[bcrypt]==1.7.4
+python-jose[cryptography]==3.3.0
+
+# 한국어 NLP (키워드 추출용)
+konlpy==0.6.0
+
+# 유틸리티
+aiofiles==23.2.1
+jinja2==3.1.2
+
+# Google Sheets 연동 (향후 확장용)
+# gspread==5.12.0
+# oauth2client==4.1.3
+
+
