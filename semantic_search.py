@@ -25,9 +25,10 @@ class SemanticSearchEngine:
     
     def load_markdown_file(self, file_path: str) -> List[Dict]:
         """
-        마크다운 파일을 읽어서 청크로 분할 (H3 단위 청킹)
+        마크다운 파일을 읽어서 청크로 분할 (질문/답변 단위 청킹)
         H2 = 카테고리 (메타데이터)
-        H3 = 실제 청크 단위
+        H3 = 섹션 제목
+        **질문:** / **답변:** = 실제 검색 단위
         """
         print(f"📄 MD 파일 로딩: {file_path}")
         
@@ -58,18 +59,9 @@ class SemanticSearchEngine:
             if line.startswith('### '):
                 # 이전 섹션 저장
                 if current_section.strip() and current_title:
-                    # [Page X] 텍스트 제거
-                    cleaned_content = '\n'.join([
-                        l for l in current_section.split('\n') 
-                        if not (l.strip().startswith('[Page') and l.strip().endswith(']'))
-                    ])
-                    
-                    chunks.append({
-                        'category': current_category,  # H2 카테고리 추가
-                        'title': current_title,
-                        'content': cleaned_content.strip(),
-                        'source': file_path
-                    })
+                    chunks.extend(
+                        self._parse_qa_section(current_title, current_section, current_category, file_path)
+                    )
                 
                 # 새 H3 섹션 시작
                 current_title = line.replace('###', '').strip()
@@ -80,21 +72,108 @@ class SemanticSearchEngine:
         
         # 마지막 섹션 저장
         if current_section.strip() and current_title:
-            # [Page X] 텍스트 제거
-            cleaned_content = '\n'.join([
-                l for l in current_section.split('\n') 
-                if not (l.strip().startswith('[Page') and l.strip().endswith(']'))
-            ])
-            
-            chunks.append({
-                'category': current_category,
-                'title': current_title,
-                'content': cleaned_content.strip(),
-                'source': file_path
-            })
+            chunks.extend(
+                self._parse_qa_section(current_title, current_section, current_category, file_path)
+            )
         
         print(f"✅ {len(chunks)}개 청크 생성 완료")
         return chunks
+    
+    def _parse_qa_section(self, title: str, content: str, category: str, source: str) -> List[Dict]:
+        """
+        H3 섹션을 질문/답변 단위로 파싱 (다중 질문 지원)
+        
+        예시:
+        ### PC-OFF 프로그램
+        **질문:** PC-OFF 프로그램이 뭐야?
+        **답변:** ...
+        **질문:** 사용 방법은?
+        **답변:** ...
+        
+        → 각 질문/답변 쌍을 개별 청크로 생성
+        """
+        chunks = []
+        
+        # [Page X] 텍스트 제거
+        cleaned_content = '\n'.join([
+            l for l in content.split('\n') 
+            if not (l.strip().startswith('[Page') and l.strip().endswith(']'))
+        ]).strip()
+        
+        # **질문:**과 **답변:** 패턴 확인
+        if '**질문:**' in cleaned_content and '**답변:**' in cleaned_content:
+            # 정규식으로 질문/답변 쌍 추출
+            import re
+            
+            # **질문:** 으로 분할
+            parts = re.split(r'\*\*질문:\*\*', cleaned_content)
+            
+            for part in parts[1:]:  # 첫 부분은 질문 전 내용이므로 스킵
+                if '**답변:**' not in part:
+                    continue
+                    
+                # 질문과 답변 분리
+                qa_split = part.split('**답변:**', 1)
+                if len(qa_split) != 2:
+                    continue
+                    
+                question = qa_split[0].strip()
+                answer_raw = qa_split[1]
+                
+                # 다음 **질문:** 전까지가 답변
+                next_question_match = re.search(r'\*\*질문:\*\*', answer_raw)
+                if next_question_match:
+                    answer = answer_raw[:next_question_match.start()].strip()
+                else:
+                    answer = answer_raw.strip()
+                
+                # 키워드 추출 (질문 + 카테고리 + 섹션)
+                keywords = self._extract_keywords(f"{category} {title} {question}")
+                
+                # 청크 생성: 각 질문/답변을 독립된 청크로
+                chunks.append({
+                    'h1': '엔카생활가이드',  # 문서명
+                    'h2': category,  # 대분류 (예: "근태 및 휴가")
+                    'h3': title,  # 중분류 (예: "PC-OFF 프로그램")
+                    'section': title,  # 하위 호환
+                    'title': question,  # 소분류 (질문 자체)
+                    'question': question,
+                    'answer': answer,
+                    'content': f"**질문:** {question}\n\n**답변:** {answer}",
+                    'keywords': keywords,
+                    'parent_section': category,  # 부모 카테고리
+                    'source': source,
+                    'chunk_type': 'qa'  # 청크 타입 명시
+                })
+        else:
+            # 질문/답변 패턴이 없는 경우 (일반 설명 섹션)
+            keywords = self._extract_keywords(f"{category} {title} {cleaned_content[:100]}")
+            
+            chunks.append({
+                'h1': '엔카생활가이드',
+                'h2': category,
+                'h3': title,
+                'section': title,
+                'title': title,
+                'content': cleaned_content,
+                'keywords': keywords,
+                'parent_section': category,
+                'source': source,
+                'chunk_type': 'section'  # 일반 섹션
+            })
+        
+        return chunks
+    
+    def _extract_keywords(self, text: str) -> List[str]:
+        """
+        텍스트에서 키워드 추출 (간단한 토큰화)
+        """
+        import re
+        # 한글, 영문, 숫자만 추출
+        words = re.findall(r'[가-힣a-zA-Z0-9]+', text)
+        # 2글자 이상만 필터링 + 중복 제거
+        keywords = list(set([w for w in words if len(w) >= 2]))
+        return keywords[:20]  # 최대 20개
     
     def load_faq_data(self, faq_file: str = 'data/faq_data.json') -> List[Dict]:
         """

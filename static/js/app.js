@@ -353,6 +353,9 @@ function addUserMessage(message) {
     const messageDiv = document.createElement('div');
     messageDiv.className = 'flex justify-end mb-3';
     
+    // 전역 변수에 마지막 질문 저장
+    window.lastUserQuestion = message;
+    
     messageDiv.innerHTML = `
         <div class="bg-gray-700 text-white rounded-2xl px-4 py-2.5 max-w-[60%] shadow-sm">
             <p class="text-[13px] leading-relaxed">${escapeHtml(message)}</p>
@@ -365,6 +368,10 @@ function addUserMessage(message) {
 
 async function addBotMessage(data, responseTime) {
     const chatMessages = document.getElementById('chatMessages');
+    
+    // 사용자가 입력한 질문 가져오기
+    const userQuestion = window.lastUserQuestion || '';
+    
     const messageDiv = createBotMessage(
         data.answer,
         data.department,
@@ -373,7 +380,8 @@ async function addBotMessage(data, responseTime) {
         data.category,
         responseTime,
         data.question_id || Date.now(),
-        true // 타이핑 효과 활성화
+        true, // 타이핑 효과 활성화
+        userQuestion // 검색어 전달
     );
     
     chatMessages.appendChild(messageDiv);
@@ -386,17 +394,36 @@ async function addBotMessage(data, responseTime) {
     }
 }
 
-function createBotMessage(answer, department, link, relatedQuestions, category, responseTime, questionId, enableTyping = false) {
+function createBotMessage(answer, department, link, relatedQuestions, category, responseTime, questionId, enableTyping = false, userQuestion = '') {
     const messageDiv = document.createElement('div');
     messageDiv.className = 'flex justify-start mb-3';
     
     // 공백 최소화된 텍스트 렌더링
-    const cleanAnswer = answer
+    let cleanAnswer = answer
         .replace(/\*\*(.*?)\*\*/g, '<strong class="font-semibold">$1</strong>')
         .replace(/\*(.*?)\*/g, '<em>$1</em>')
         .replace(/^#{1,6}\s+/gm, '')
         .replace(/\n\n+/g, '\n')
         .replace(/\n/g, '<br>');
+    
+    // 마크다운 테이블 변환 (하이라이팅 전에 처리)
+    cleanAnswer = convertMarkdownTables(cleanAnswer);
+    
+    // [태그] 형식을 SVG 아이콘으로 변환
+    cleanAnswer = renderSectionIcons(cleanAnswer);
+    
+    // 검색어 하이라이팅 (사용자 질문에서 키워드 추출)
+    if (userQuestion && userQuestion.trim()) {
+        const keywords = extractKeywords(userQuestion);
+        keywords.forEach(keyword => {
+            if (keyword.length >= 2) {  // 2글자 이상만
+                // 이미 태그 안에 있는 것은 제외 (정규식으로 태그 밖의 텍스트만 매칭)
+                const regex = new RegExp(`(?<!<[^>]*)(${keyword})(?![^<]*>)`, 'gi');
+                cleanAnswer = cleanAnswer.replace(regex, '<mark class="bg-yellow-200 text-gray-900 font-semibold px-0.5 rounded">$1</mark>');
+            }
+        });
+    }
+    
     const renderedAnswer = cleanAnswer;
     
     let html = `
@@ -409,7 +436,7 @@ function createBotMessage(answer, department, link, relatedQuestions, category, 
                 ${category ? `<span class="text-xs text-gray-500">·</span><span class="text-xs text-gray-500">${escapeHtml(category)}</span>` : ''}
             </div>
             
-            <div class="text-gray-800 text-[13px] leading-relaxed answer-text">${enableTyping ? '' : renderedAnswer}</div>
+            <div class="text-gray-800 text-[13px] leading-relaxed answer-text" data-full-answer="${escapeHtml(renderedAnswer)}">${enableTyping ? '' : createCollapsibleAnswer(renderedAnswer)}</div>
     `;
     
     if (link) {
@@ -431,45 +458,28 @@ function createBotMessage(answer, department, link, relatedQuestions, category, 
         const isMultiSectionMode = answer.includes('여러 섹션이 있습니다');
         
         html += `
-            <div class="mt-2 pt-2 border-t border-red-100">
-                <p class="text-sm font-medium text-gray-600 mb-1.5">${isMultiSectionMode ? '📂 관련 섹션' : '💡 비슷한 질문이 있어요'}</p>
-                <div class="${isMultiSectionMode ? 'space-y-2' : 'space-y-1'}">
+            <div class="mt-4 pt-3">
+                <div class="flex items-center gap-1.5 mb-3">
+                    <span class="text-base">⭐</span>
+                    <p class="text-sm font-bold text-gray-800">${isMultiSectionMode ? '관련 섹션' : '유사한 질문'}</p>
+                </div>
+                <div class="space-y-2.5">
         `;
         
         const questionsToShow = Array.isArray(relatedQuestions[0]) ? relatedQuestions : relatedQuestions.slice(0, 3);
         questionsToShow.forEach((q, index) => {
             const questionText = typeof q === 'string' ? q : q.question;
             
-            if (isMultiSectionMode) {
-                // 마인드맵 스타일: 카드형 버튼
-                html += `
-                    <button onclick="askSampleQuestion('${escapeHtml(questionText)}')" 
-                            class="group flex items-start gap-3 w-full text-left p-3 bg-gradient-to-r from-red-50 to-orange-50 hover:from-red-100 hover:to-orange-100 border border-red-200 hover:border-red-300 rounded-lg transition-all duration-200 hover:shadow-md hover:-translate-y-0.5">
-                        <div class="flex-shrink-0 w-6 h-6 bg-red-600 text-white rounded-full flex items-center justify-center text-xs font-bold group-hover:scale-110 transition-transform">
-                            ${index + 1}
-                        </div>
-                        <div class="flex-1 min-w-0">
-                            <div class="text-sm font-medium text-gray-800 group-hover:text-red-700 transition-colors">
-                                ${escapeHtml(questionText)}
-                            </div>
-                        </div>
-                        <svg class="flex-shrink-0 w-5 h-5 text-red-400 group-hover:text-red-600 group-hover:translate-x-1 transition-all" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
-                        </svg>
-                    </button>
-                `;
-            } else {
-                // 기존 스타일: 심플한 버튼
-                html += `
-                    <button onclick="askSampleQuestion('${escapeHtml(questionText)}')" 
-                            class="flex items-center gap-2 w-full text-left text-sm text-gray-600 hover:text-red-600 hover:bg-red-50 px-2 py-1 rounded transition">
-                        <svg class="w-4 h-4 flex-shrink-0 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
-                        </svg>
-                        <span>${escapeHtml(questionText)}</span>
-                    </button>
-                `;
-            }
+            // 통일된 디자인: 회색 배경 + 심플 아이콘
+            html += `
+                <button onclick="askSampleQuestion('${escapeHtml(questionText)}')" 
+                        class="flex items-center gap-3 w-full px-4 py-3 bg-gray-100 hover:bg-gray-200 rounded-lg text-left transition-all hover:shadow-sm">
+                    <svg class="w-5 h-5 text-gray-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                    </svg>
+                    <span class="text-sm text-gray-800 font-medium">${escapeHtml(questionText)}</span>
+                </button>
+            `;
         });
         
         html += `
@@ -1157,6 +1167,249 @@ function fallbackCopyToClipboard(text) {
     }
     
     document.body.removeChild(textArea);
+}
+
+// ==================== 유틸리티 함수 ====================
+
+/**
+ * 사용자 질문에서 키워드 추출
+ */
+function extractKeywords(question) {
+    // 불용어 목록 (검색에 불필요한 단어)
+    const stopWords = ['은', '는', '이', '가', '을', '를', '에', '에서', '의', '와', '과', '로', '으로', 
+                       '어떻게', '어디', '무엇', '뭐', '어떤', '어느', '있나요', '있어요', '하나요', '해요', 
+                       '인가요', '입니까', '합니까', '나요', '까요', '?', '!', '.'];
+    
+    // 문장을 단어로 분리 (한글, 영문, 숫자만)
+    const words = question.match(/[가-힣a-zA-Z0-9]+/g) || [];
+    
+    // 불용어 제거 및 2글자 이상 필터링
+    const keywords = words.filter(word => 
+        word.length >= 2 && !stopWords.includes(word)
+    );
+    
+    // 중복 제거
+    return [...new Set(keywords)];
+}
+
+/**
+ * 긴 답변에 더보기/접기 토글 추가
+ */
+function createCollapsibleAnswer(html) {
+    // <br> 개수로 길이 판단 (약 10줄 이상)
+    const lineCount = (html.match(/<br>/g) || []).length;
+    const charCount = html.replace(/<[^>]*>/g, '').length; // 태그 제외한 순수 텍스트 길이
+    
+    // 10줄 이상 또는 500자 이상이면 접기
+    if (lineCount >= 10 || charCount >= 500) {
+        // 첫 5줄 또는 200자까지만 미리보기로 표시
+        let preview = html;
+        const brMatches = html.match(/(<br>)/g);
+        
+        if (brMatches && brMatches.length >= 5) {
+            const fifthBrIndex = html.split('<br>', 6).slice(0, 5).join('<br>').length;
+            preview = html.substring(0, fifthBrIndex + 4); // +4 for '<br>'
+        } else if (charCount >= 300) {
+            preview = html.substring(0, 300);
+        }
+        
+        const uniqueId = 'collapse-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
+        
+        return `
+            <div id="${uniqueId}-preview" class="collapsible-preview">
+                ${preview}
+                ${lineCount >= 5 ? '<br>...' : '...'}
+            </div>
+            <div id="${uniqueId}-full" class="collapsible-full hidden">
+                ${html}
+            </div>
+            <button 
+                onclick="toggleCollapse('${uniqueId}')" 
+                class="mt-2 text-red-600 hover:text-red-700 font-medium text-xs flex items-center gap-1 transition-colors"
+                id="${uniqueId}-btn"
+            >
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                </svg>
+                <span>더보기</span>
+            </button>
+        `;
+    }
+    
+    return html;
+}
+
+/**
+ * 답변 접기/펼치기 토글
+ */
+function toggleCollapse(id) {
+    const preview = document.getElementById(id + '-preview');
+    const full = document.getElementById(id + '-full');
+    const btn = document.getElementById(id + '-btn');
+    
+    if (preview && full && btn) {
+        const isExpanded = full.classList.contains('hidden');
+        
+        if (isExpanded) {
+            // 펼치기
+            preview.classList.add('hidden');
+            full.classList.remove('hidden');
+            btn.innerHTML = `
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 15l7-7 7 7"></path>
+                </svg>
+                <span>접기</span>
+            `;
+        } else {
+            // 접기
+            preview.classList.remove('hidden');
+            full.classList.add('hidden');
+            btn.innerHTML = `
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                </svg>
+                <span>더보기</span>
+            `;
+        }
+    }
+}
+
+// 전역 스코프에 함수 등록
+window.toggleCollapse = toggleCollapse;
+
+/**
+ * 마크다운 테이블을 HTML 테이블로 변환
+ */
+/**
+ * [태그] 형식을 대형 배지와 스타일링된 박스로 변환
+ */
+function renderSectionIcons(html) {
+    // 구분선(---) 완전 제거
+    html = html.replace(/---/g, '');
+    html = html.replace(/<br>\s*<br>/g, '<br>'); // 연속 줄바꿈 정리
+    
+    const icons = {
+        '[요약]': `
+            <div class="section-divider"></div>
+            <div class="section-box mb-5 p-5 bg-gradient-to-br from-blue-50 to-blue-100/50 border-2 border-blue-400 rounded-2xl shadow-sm">
+                <div class="flex items-center gap-3 mb-4">
+                    <div class="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-full shadow-md">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                        </svg>
+                        <span class="font-bold text-base">요약</span>
+                    </div>
+                </div>
+                <div class="section-content text-gray-900 font-medium text-base leading-relaxed">`,
+        
+        '[상세]': `
+            </div></div>
+            <div class="section-divider"></div>
+            <div class="section-box mb-5 p-5 bg-white border-2 border-gray-300 rounded-2xl shadow-sm">
+                <div class="flex items-center gap-3 mb-4">
+                    <div class="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-full shadow-md">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                        </svg>
+                        <span class="font-bold text-base">상세</span>
+                    </div>
+                </div>
+                <div class="section-content text-gray-800 text-sm leading-relaxed">`,
+        
+        '[참고]': `
+            </div></div>
+            <div class="section-divider"></div>
+            <div class="section-box mb-5 p-5 bg-gradient-to-br from-amber-50 to-yellow-100/50 border-2 border-yellow-400 rounded-2xl shadow-sm">
+                <div class="flex items-center gap-3 mb-4">
+                    <div class="flex items-center gap-2 px-4 py-2 bg-amber-600 text-white rounded-full shadow-md">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"></path>
+                        </svg>
+                        <span class="font-bold text-base">참고</span>
+                    </div>
+                </div>
+                <div class="section-content text-gray-800 text-sm leading-relaxed">`,
+        
+        '[주의사항]': `
+            </div></div>
+            <div class="section-divider"></div>
+            <div class="section-box mb-5 p-5 bg-gradient-to-br from-red-50 to-rose-100/50 border-2 border-red-400 rounded-2xl shadow-sm">
+                <div class="flex items-center gap-3 mb-4">
+                    <div class="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-full shadow-md">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+                        </svg>
+                        <span class="font-bold text-base">주의사항</span>
+                    </div>
+                </div>
+                <div class="section-content text-gray-800 text-sm leading-relaxed">`
+    };
+    
+    // 각 태그를 대형 배지 박스로 교체
+    for (const [tag, iconHtml] of Object.entries(icons)) {
+        const regex = new RegExp(tag.replace(/[[\]]/g, '\\$&'), 'g');
+        html = html.replace(regex, iconHtml);
+    }
+    
+    // 마지막 섹션 닫기
+    if (html.includes('section-box')) {
+        html += '</div></div>';
+    }
+    
+    return html;
+}
+
+function convertMarkdownTables(text) {
+    // <br> 태그를 임시로 줄바꿈으로 복원
+    let content = text.replace(/<br>/g, '\n');
+    
+    // 마크다운 테이블 패턴 매칭
+    // | 헤더1 | 헤더2 |
+    // | 데이터1 | 데이터2 |
+    const tableRegex = /(\|[^\n]+\|(?:\n\|[^\n]+\|)+)/g;
+    
+    content = content.replace(tableRegex, (match) => {
+        const rows = match.trim().split('\n').filter(row => row.trim());
+        
+        if (rows.length < 2) return match; // 테이블이 너무 짧으면 그대로 반환
+        
+        // 구분선(|---|---|) 확인
+        const hasSeparator = rows[1].includes('---') || rows[1].includes(':--');
+        const startIndex = hasSeparator ? 2 : 1; // 구분선이 있으면 2번째 행부터, 없으면 1번째 행부터
+        
+        let html = '<div class="table-wrapper my-3 overflow-x-auto"><table class="min-w-full border-collapse border border-gray-300 text-sm">';
+        
+        // 헤더 행
+        if (rows.length > 0) {
+            const headerCells = rows[0].split('|').filter(cell => cell.trim());
+            if (headerCells.length > 0) {
+                html += '<thead class="bg-gradient-to-r from-red-50 to-orange-50"><tr>';
+                headerCells.forEach(cell => {
+                    html += `<th class="border border-gray-300 px-3 py-2 text-left font-semibold text-gray-800">${cell.trim()}</th>`;
+                });
+                html += '</tr></thead>';
+            }
+        }
+        
+        // 데이터 행
+        html += '<tbody>';
+        for (let i = startIndex; i < rows.length; i++) {
+            const cells = rows[i].split('|').filter(cell => cell.trim());
+            if (cells.length > 0) {
+                html += '<tr class="hover:bg-gray-50 transition-colors">';
+                cells.forEach(cell => {
+                    html += `<td class="border border-gray-300 px-3 py-2 text-gray-700">${cell.trim()}</td>`;
+                });
+                html += '</tr>';
+            }
+        }
+        html += '</tbody></table></div>';
+        
+        return html;
+    });
+    
+    // 줄바꿈을 다시 <br>로 변환 (테이블 밖의 내용)
+    return content.replace(/\n/g, '<br>');
 }
 
 // ==================== 키보드 단축키 ====================

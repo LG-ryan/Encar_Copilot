@@ -26,13 +26,12 @@ class AnswerService:
         self.md_category_map = {
             '업무 환경 세팅': 'IT',
             '업무 Tool 소개': 'IT',
+            '엔카 소개': '기업 소개',
             '복리후생': '복리후생',
             '근태 및 휴가': 'HR',
+            '인사 서비스': 'HR',
             '급여 및 경비': 'HR',
             '사무실 이용': '총무',
-            '인사 서비스': 'HR',
-            '엔카 소개': '총무',
-            '꿀팁 모음': '총무',
         }
     
     def process_question(self, question: str) -> AnswerResponse:
@@ -65,7 +64,9 @@ class AnswerService:
     
     def _semantic_search(self, question: str, start_time: float) -> Optional[AnswerResponse]:
         """
-        시맨틱 검색 수행
+        2-pass 계층적 시맨틱 검색
+        Pass 1: 넓게 찾기 (카테고리 파악)
+        Pass 2: 깊게 파기 (세부 질문 매칭)
         
         Args:
             question: 사용자 질문
@@ -74,14 +75,8 @@ class AnswerService:
         Returns:
             AnswerResponse 또는 None
         """
-        # 정규화 버전도 검색 (띄어쓰기 제거)
-        normalized_question = question.replace(" ", "")
-        
-        # 원본 + 정규화 검색 결과 병합
-        results = self.semantic.search(question, top_k=10)
-        if normalized_question != question:
-            results_normalized = self.semantic.search(normalized_question, top_k=5)
-            results = self._merge_search_results(results, results_normalized)
+        # Pass 1: 넓게 검색 (top_k=20)
+        results = self.semantic.search(question, top_k=20)
         
         if not results:
             return None
@@ -90,22 +85,172 @@ class AnswerService:
         faq_results = [(doc, score) for doc, score in results if doc.get('source') == 'FAQ']
         md_results = [(doc, score) for doc, score in results if doc.get('source') != 'FAQ']
         
-        # MD 우선 전략
-        best_match, score, is_md = self._select_best_match(faq_results, md_results)
+        # MD 결과가 있으면 계층 분석
+        if md_results:
+            return self._hierarchical_md_search(question, md_results, faq_results, start_time)
+        elif faq_results:
+            # FAQ만 있으면 기존 방식
+            return self._build_faq_answer(faq_results[0][0], faq_results[0][1], results, start_time)
         
-        if not best_match:
             return None
         
-        # 신뢰도 검증
-        min_threshold = settings.SEMANTIC_THRESHOLD_MD if is_md else settings.SEMANTIC_THRESHOLD_FAQ
-        if score < min_threshold:
-            return None
+    def _hierarchical_md_search(
+        self, 
+        question: str, 
+        md_results: List[Tuple[Dict, float]], 
+        faq_results: List[Tuple[Dict, float]], 
+        start_time: float
+    ) -> Optional[AnswerResponse]:
+        """
+        계층적 MD 검색 (2-pass)
+        1. H2 카테고리별 점수 집계
+        2. 최적 카테고리 내에서 세부 질문 매칭
+        """
+        # Pass 1: H2 카테고리별 점수 집계
+        category_scores = {}
+        for doc, score in md_results:
+            h2 = doc.get('h2', doc.get('category', '기타'))
+            if h2 not in category_scores:
+                category_scores[h2] = {'total_score': 0, 'count': 0, 'docs': []}
+            category_scores[h2]['total_score'] += score
+            category_scores[h2]['count'] += 1
+            category_scores[h2]['docs'].append((doc, score))
+        
+        # 카테고리 평균 점수 계산
+        for cat in category_scores:
+            category_scores[cat]['avg_score'] = (
+                category_scores[cat]['total_score'] / category_scores[cat]['count']
+            )
+        
+        # 최고 점수 카테고리
+        best_category = max(category_scores.items(), key=lambda x: x[1]['avg_score'])
+        category_name, category_data = best_category
+        best_category_score = category_data['avg_score']
+        
+        # Pass 2: 최적 카테고리 내 세부 질문 매칭
+        category_docs = sorted(category_data['docs'], key=lambda x: x[1], reverse=True)
+        best_doc, best_score = category_docs[0]
+        
+        # 명확도 판단
+        is_clear = self._is_clear_match(best_score, category_docs)
+        
+        if is_clear:
+            # 명확한 질문 → 바로 답변
+            return self._build_direct_answer(question, best_doc, best_score, category_docs, start_time)
+        else:
+            # 애매한 질문 → drill-down (마인드맵)
+            return self._build_drilldown_answer(question, category_name, category_docs, start_time)
+    
+    def _is_clear_match(self, best_score: float, docs: List[Tuple[Dict, float]]) -> bool:
+        """
+        명확한 매칭인지 판단
+        - 최고 점수가 0.5 이상
+        - 또는 2등과의 점수 차이가 0.15 이상
+        """
+        if best_score >= 0.5:
+            return True
+        
+        if len(docs) >= 2:
+            second_score = docs[1][1]
+            if best_score - second_score >= 0.15:
+                return True
+        
+        return False
+    
+    def _build_direct_answer(
+        self,
+        question: str,
+        best_doc: Dict,
+        score: float,
+        category_docs: List[Tuple[Dict, float]],
+        start_time: float
+    ) -> AnswerResponse:
+        """명확한 질문에 대한 직접 답변"""
+        # 답변 추출
+        if 'answer' in best_doc:
+            answer_text = best_doc['answer']
+            section_info = f"**[{best_doc.get('h3', '')}]**\n\n" if best_doc.get('h3') else ""
+            answer = f"{section_info}{answer_text}"
+        else:
+            # 기존 방식 (하위 호환)
+            content = best_doc['content']
+            if '**답변:**' in content:
+                answer = content.split('**답변:**')[1].strip()
+            else:
+                answer = content
+        
+        # 관련 질문 (중복 제거)
+        seen_titles = {best_doc['title']}
+        related_questions = []
+        
+        for doc, _ in category_docs[1:10]:
+            title = doc.get('title', '')
+            if title and title not in seen_titles and not title.startswith('[Page'):
+                seen_titles.add(title)
+                related_questions.append({"question": title})
+                if len(related_questions) >= 3:
+                    break
+        
+        category = self._get_category(best_doc)
+        
+        return AnswerResponse(
+            answer=answer,
+            department='엔디(Endy)',
+            link=None,
+            category=category,
+            confidence_score=round(score, 2),
+            related_questions=related_questions,
+            response_time=round(time.time() - start_time, 3)
+        )
+    
+    def _build_drilldown_answer(
+        self,
+        question: str,
+        category_name: str,
+        category_docs: List[Tuple[Dict, float]],
+        start_time: float
+    ) -> AnswerResponse:
+        """애매한 질문에 대한 drill-down 답변 (마인드맵)"""
+        # H3 섹션별로 그룹화
+        section_groups = {}
+        for doc, score in category_docs[:10]:
+            h3 = doc.get('h3', doc.get('section', '기타'))
+            if h3 not in section_groups:
+                section_groups[h3] = []
+            section_groups[h3].append((doc, score))
         
         # 답변 구성
-        if is_md:
-            return self._build_md_answer(question, best_match, score, results, start_time)
-        else:
-            return self._build_faq_answer(best_match, score, results, start_time)
+        answer = f"**'{question}'**과 관련된 질문들을 찾았습니다:\n\n"
+        answer += f"📂 **[{category_name}]** 카테고리\n\n"
+        
+        shown_titles = set()
+        related_questions = []
+        
+        # 섹션별로 질문 제시
+        for i, (section, docs) in enumerate(list(section_groups.items())[:4], 1):
+            answer += f"**{i}. {section}**\n"
+            
+            for doc, score in docs[:3]:  # 섹션당 최대 3개
+                title = doc.get('title', '')
+                if title and title not in shown_titles and not title.startswith('[Page'):
+                    answer += f"   • {title}\n"
+                    shown_titles.add(title)
+                    related_questions.append({"question": title})
+            answer += "\n"
+        
+        answer += "💡 구체적인 질문을 선택하시면 상세 답변을 확인하실 수 있습니다!"
+        
+        category = self._get_category(category_docs[0][0])
+        
+        return AnswerResponse(
+            answer=answer,
+            department='엔디(Endy)',
+            link=None,
+            category=category,
+            confidence_score=round(category_docs[0][1], 2),
+            related_questions=related_questions[:6],  # 최대 6개
+            response_time=round(time.time() - start_time, 3)
+        )
     
     def _merge_search_results(
         self, 
@@ -154,127 +299,6 @@ class AnswerService:
         
         return None, 0.0, False
     
-    def _build_md_answer(
-        self, 
-        question: str, 
-        best_match: Dict, 
-        score: float, 
-        results: List[Tuple[Dict, float]], 
-        start_time: float
-    ) -> AnswerResponse:
-        """MD 파일 기반 답변 구성"""
-        # 고득점 섹션 필터링
-        high_score_sections = [
-            (doc, s) for doc, s in results[:5] 
-            if s >= settings.SEMANTIC_THRESHOLD_MD
-        ]
-        
-        # 마인드맵 모드 또는 직접 답변
-        if len(high_score_sections) >= 2:
-            answer, related_questions = self._check_mindmap_mode(
-                question, high_score_sections
-            )
-        else:
-            answer, related_questions = self._build_single_answer(
-                high_score_sections, results
-            )
-        
-        # 카테고리 결정
-        category = self._get_category(best_match)
-        
-        return AnswerResponse(
-            answer=answer,
-            department='엔디(Endy)',
-            link=None,
-            category=category,
-            confidence_score=round(score, 2),
-            related_questions=related_questions,
-            response_time=round(time.time() - start_time, 3)
-        )
-    
-    def _check_mindmap_mode(
-        self, 
-        question: str, 
-        high_score_sections: List[Tuple[Dict, float]]
-    ) -> Tuple[str, List[Dict]]:
-        """
-        마인드맵 모드 체크 (유사 섹션이 여러 개인 경우)
-        
-        Returns:
-            (answer, related_questions)
-        """
-        best_score = high_score_sections[0][1]
-        
-        # 점수가 비슷한 섹션들 찾기
-        similar_sections = [
-            (doc, s) for doc, s in high_score_sections 
-            if best_score - s <= settings.SEMANTIC_SCORE_DIFF
-        ]
-        
-        # 마인드맵 모드 조건: 2개 이상 + 충분히 높은 점수
-        if len(similar_sections) >= 2 and best_score >= settings.SEMANTIC_MINDMAP_THRESHOLD:
-            # 여러 옵션 제공
-            answer = f"**'{question}'** 관련하여 여러 섹션이 있습니다:\n\n"
-            
-            for i, (doc, _) in enumerate(similar_sections[:4], 1):
-                preview = doc['content'][:100].replace('\n', ' ') + "..."
-                answer += f"**{i}. {doc['title']}**\n{preview}\n\n"
-            
-            answer += "💡 더 구체적으로 질문하시거나, 위 섹션 중 하나를 선택해주세요!"
-            
-            related_questions = [
-                {"question": doc['title']} 
-                for doc, _ in similar_sections[:4]
-                if not doc['title'].startswith('[Page')
-            ]
-            
-            return answer, related_questions
-        
-        # 명확한 답변이 있으면 직접 제공
-        return self._build_single_answer(high_score_sections[:1], [])
-    
-    def _build_single_answer(
-        self, 
-        high_score_sections: List[Tuple[Dict, float]], 
-        all_results: List[Tuple[Dict, float]]
-    ) -> Tuple[str, List[Dict]]:
-        """단일 답변 구성"""
-        answer_parts = []
-        current_title = None
-        
-        for doc, s in high_score_sections[:1]:  # 상위 1개만
-            current_title = doc['title']  # 현재 선택된 제목 저장
-            content = doc['content']
-            
-            # "질문:" 부분 제거
-            if '**질문:**' in content:
-                content = content.split('**질문:**', 1)[1]  # 질문: 이후 부분
-            
-            # "답변:" 부분만 추출
-            if '**답변:**' in content:
-                answer_part = content.split('**답변:**')[1]
-                # 다음 섹션 시작(###) 전까지만
-                if '###' in answer_part:
-                    answer_part = answer_part.split('###')[0]
-                content = answer_part.strip()
-            else:
-                # 답변: 포맷이 없으면 전체 내용 사용 (질문: 제거 후)
-                content = content.strip()
-            
-            answer_parts.append(f"**{doc['title']}**\n\n{content}")
-        
-        answer = "\n\n---\n\n".join(answer_parts) if answer_parts else "관련 정보를 찾지 못했습니다."
-        
-        # 관련 질문 (현재 선택된 섹션 제외)
-        related_questions = [
-            {"question": doc['title']} 
-            for doc, _ in all_results[1:6]  # 2~6번째 결과 (1번째는 현재 답변)
-            if doc.get('title') 
-            and not doc['title'].startswith('[Page')
-            and doc['title'] != current_title  # 현재 제목 제외!
-        ][:3]  # 최대 3개
-        
-        return answer, related_questions
     
     def _build_faq_answer(
         self, 
@@ -307,8 +331,18 @@ class AnswerService:
     
     def _get_category(self, doc: Dict) -> str:
         """문서의 카테고리 결정"""
+        # MD 파일의 경우 h2 (대분류) 확인
+        h2 = doc.get('h2', '')
+        if h2 and h2 in self.md_category_map:
+            return self.md_category_map[h2]
+        
+        # FAQ의 경우 category 필드 확인
         doc_category = doc.get('category', '')
-        return self.md_category_map.get(doc_category, '총무')
+        if doc_category:
+            return doc_category
+        
+        # 기본값
+        return '일반'
     
     def _keyword_search(self, question: str, start_time: float) -> AnswerResponse:
         """키워드 기반 검색 (폴백)"""
@@ -336,7 +370,31 @@ class AnswerService:
         return self._no_result_response(question, start_time)
     
     def _no_result_response(self, question: str, start_time: float) -> AnswerResponse:
-        """검색 결과 없음 응답"""
+        """검색 결과 없음 응답 (특정 키워드 감지 포함)"""
+        # 특정 키워드별 맞춤 응답
+        question_lower = question.lower()
+        
+        # 진단/진단센터 관련
+        if '진단' in question or '진단센터' in question or '광고지원센터' in question:
+            return AnswerResponse(
+                answer="💡 **진단센터 관련 문의**\n\n"
+                      "진단센터/광고지원센터 관련 정보는 현재 준비 중입니다.\n\n"
+                      "📱 **모바일 진단 App**: 엔카 광고지원센터에서 차량 진단 업무 처리\n"
+                      "📍 **전국 60여개 광고지원센터** 운영 중\n"
+                      "🔗 다운로드: https://mobile.encar.io/\n\n"
+                      "자세한 사항은 **IT팀** 또는 **현장 운영팀**에 문의해주세요.",
+                department='엔디(Endy)',
+                link='https://mobile.encar.io/',
+                category='IT',
+                confidence_score=0.3,
+                related_questions=[
+                    {"question": "모바일 앱은 어떻게 다운받나요?"},
+                    {"question": "지점 분포는 어떻게 되나요?"}
+                ],
+                response_time=round(time.time() - start_time, 3)
+            )
+        
+        # 기타 검색 실패
         return AnswerResponse(
             answer="죄송합니다. 관련된 답변을 찾지 못했습니다. 다른 표현으로 질문해주시거나, 담당 부서에 직접 문의해주세요.",
             department='엔디(Endy)',

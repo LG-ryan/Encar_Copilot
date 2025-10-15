@@ -38,6 +38,68 @@
             background-color: #b82323;
         }
         
+        /* 섹션 구분선 (시각적 여백) */
+        .section-divider {
+            height: 1px;
+            background: linear-gradient(to right, transparent, rgba(0,0,0,0.1), transparent);
+            margin: 1.5rem 0;
+        }
+        
+        /* 섹션 박스 스타일 */
+        .section-box {
+            transition: all 0.3s ease;
+            position: relative;
+        }
+        
+        .section-box:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.12);
+        }
+        
+        .section-content {
+            line-height: 1.8;
+        }
+        
+        .section-content strong {
+            font-weight: 700;
+            color: #1f2937;
+        }
+        
+        .section-content ul, .section-content ol {
+            margin-left: 1.5rem;
+            margin-top: 0.75rem;
+            margin-bottom: 0.75rem;
+        }
+        
+        .section-content ul {
+            list-style-type: disc;
+        }
+        
+        .section-content ol {
+            list-style-type: decimal;
+        }
+        
+        .section-content li {
+            margin-bottom: 0.5rem;
+            line-height: 1.7;
+        }
+        
+        /* 배지 애니메이션 */
+        .section-box .flex.items-center.gap-2.px-4 {
+            animation: badgeSlide 0.4s ease-out;
+        }
+        
+        @keyframes badgeSlide {
+            from {
+                opacity: 0;
+                transform: translateX(-10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+        
         /* 채팅 애니메이션 */
         .fade-in {
             animation: fadeIn 0.3s ease-in;
@@ -294,14 +356,14 @@
     
     <!-- 푸터 -->
     <footer class="container mx-auto px-4 py-4 text-center text-xs text-gray-400">
-        <p>© 2025 Encar Corporation</p>
+        <p>© 2025 Encar Corporation · Made by P&C Team Ryan</p>
     </footer>
     
     <!-- Marked.js (마크다운 렌더링) -->
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     
-    <!-- JavaScript -->
-    <script src="/static/js/app.js"></script>
+    <!-- JavaScript (캐시 무효화를 위한 버전 추가) -->
+    <script src="/static/js/app.js?v=20251015-2008&nocache=true"></script>
     
 </body>
 </html>
