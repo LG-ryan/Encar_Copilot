@@ -5,6 +5,7 @@ python-multipart==0.0.6
 
 # 데이터 처리 및 검증
 pydantic==2.5.0
+pydantic-settings==2.1.0
 python-dotenv==1.0.0
 
 # 템플릿 및 파일 처리
