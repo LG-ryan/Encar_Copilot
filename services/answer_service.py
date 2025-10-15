@@ -246,12 +246,20 @@ class AnswerService:
             current_title = doc['title']  # 현재 선택된 제목 저장
             content = doc['content']
             
-            # "질문/답변" 형식 제거 - 답변만 추출
+            # "질문:" 부분 제거
+            if '**질문:**' in content:
+                content = content.split('**질문:**', 1)[1]  # 질문: 이후 부분
+            
+            # "답변:" 부분만 추출
             if '**답변:**' in content:
                 answer_part = content.split('**답변:**')[1]
+                # 다음 섹션 시작(###) 전까지만
                 if '###' in answer_part:
                     answer_part = answer_part.split('###')[0]
                 content = answer_part.strip()
+            else:
+                # 답변: 포맷이 없으면 전체 내용 사용 (질문: 제거 후)
+                content = content.strip()
             
             answer_parts.append(f"**{doc['title']}**\n\n{content}")
         
