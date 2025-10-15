@@ -45,6 +45,10 @@ class SemanticSearchEngine:
             if line.strip().startswith('[Page') and line.strip().endswith(']'):
                 continue
             
+            # 이미지 라인 건너뛰기 (![이미지](data:image 또는 ![이미지](page)
+            if line.strip().startswith('![이미지](data:image') or line.strip().startswith('![이미지](page'):
+                continue
+            
             # H2: 카테고리 저장 (청크 분리 안함)
             if line.startswith('## ') and not line.startswith('###'):
                 current_category = line.replace('##', '').strip()
