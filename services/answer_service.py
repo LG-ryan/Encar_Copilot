@@ -225,6 +225,7 @@ class AnswerService:
             related_questions = [
                 {"question": doc['title']} 
                 for doc, _ in similar_sections[:4]
+                if not doc['title'].startswith('[Page')
             ]
             
             return answer, related_questions
@@ -239,8 +240,10 @@ class AnswerService:
     ) -> Tuple[str, List[Dict]]:
         """단일 답변 구성"""
         answer_parts = []
+        current_title = None
         
         for doc, s in high_score_sections[:1]:  # 상위 1개만
+            current_title = doc['title']  # 현재 선택된 제목 저장
             content = doc['content']
             
             # "질문/답변" 형식 제거 - 답변만 추출
@@ -254,12 +257,14 @@ class AnswerService:
         
         answer = "\n\n---\n\n".join(answer_parts) if answer_parts else "관련 정보를 찾지 못했습니다."
         
-        # 관련 질문
+        # 관련 질문 (현재 선택된 섹션 제외)
         related_questions = [
             {"question": doc['title']} 
-            for doc, _ in all_results[3:6]
-            if doc.get('title') and not doc['title'].startswith('[Page')
-        ]
+            for doc, _ in all_results[1:6]  # 2~6번째 결과 (1번째는 현재 답변)
+            if doc.get('title') 
+            and not doc['title'].startswith('[Page')
+            and doc['title'] != current_title  # 현재 제목 제외!
+        ][:3]  # 최대 3개
         
         return answer, related_questions
     
