@@ -5,31 +5,73 @@
 [![Python](https://img.shields.io/badge/Python-3.11+-blue.svg)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.104+-green.svg)](https://fastapi.tiangolo.com/)
 [![License](https://img.shields.io/badge/License-Internal-red.svg)](LICENSE)
-[![Status](https://img.shields.io/badge/Status-v2.0-brightgreen.svg)](CHANGELOG.md)
+[![Status](https://img.shields.io/badge/Status-v2.1_Production_Ready-brightgreen.svg)](CHANGELOG.md)
 
 ---
 
-## 📁 프로젝트 구조 (v2.0 리팩토링)
+## 🎉 v2.1 주요 개선 사항 (2025-01-17)
+
+### 🔐 보안 강화
+- ✅ API 키 환경변수화 (비용 폭발 방지)
+- ✅ 개인정보 로그 마스킹 (법적 리스크 제거)
+- ✅ RBAC 역할 기반 접근 제어 (admin/user)
+- ✅ CORS 정책 강화 + 보안 헤더
+
+### 🛡️ 안정성 강화
+- ✅ 전역 예외 처리
+- ✅ 레이트리밋 (분당 10회, 시간당 100회)
+- ✅ PostgreSQL 마이그레이션 준비
+
+### 📊 관찰성 강화
+- ✅ 구조화된 로깅 (JSON 포맷)
+- ✅ 헬스체크 엔드포인트 (/health, /readiness, /liveness)
+- ✅ Prometheus 메트릭 (/metrics)
+
+**📚 새로운 문서**: [`DEPLOYMENT_GUIDE.md`](DEPLOYMENT_GUIDE.md), [`ENV_SETUP.md`](ENV_SETUP.md), [`UPGRADE_SUMMARY.md`](UPGRADE_SUMMARY.md)
+
+---
+
+## 📁 프로젝트 구조 (v2.1 Production Ready)
 
 ```
 Encar Copilot/
-├── 📂 config/              # 설정 관리 ⭐ NEW
+├── 📂 config/              # 설정 관리
 │   ├── __init__.py
-│   └── settings.py         # 중앙화된 설정
+│   └── settings.py         # 환경변수 기반 설정
 │
-├── 📂 services/            # 비즈니스 로직 ⭐ NEW
+├── 📂 services/            # 비즈니스 로직
 │   ├── __init__.py
-│   └── answer_service.py   # 답변 처리 서비스
+│   ├── answer_service.py   # 답변 처리
+│   └── llm_service.py      # LLM 검색 (OpenAI)
+│
+├── 📂 utils/               # 유틸리티 ⭐ NEW
+│   ├── __init__.py
+│   ├── privacy.py          # 개인정보 마스킹
+│   ├── logger.py           # 구조화된 로깅
+│   ├── exceptions.py       # 커스텀 예외
+│   ├── rate_limiter.py     # 레이트리밋
+│   ├── metrics.py          # Prometheus 메트릭
+│   └── auth.py             # RBAC 인증
+│
+├── 📂 database_migration/  # DB 마이그레이션 ⭐ NEW
+│   ├── README.md           # 마이그레이션 가이드
+│   ├── schema.sql          # PostgreSQL 스키마
+│   └── migrate_data.py     # 마이그레이션 스크립트
 │
 ├── 📂 data/                # 데이터 파일
 │   ├── faq_data.json       # FAQ 데이터
-│   ├── users.json          # 사용자 정보
+│   ├── users.json          # 사용자 정보 (role 추가)
 │   ├── feedback.json       # 피드백 로그
-│   └── semantic_index/     # 시맨틱 인덱스 (자동 생성)
+│   └── documents_metadata.json  # LLM 메타데이터 ⭐ NEW
 │
 ├── 📂 docs/                # 문서 및 가이드
 │   ├── images/             # 가이드 이미지
-│   └── 엔카생활가이드.md    # 메인 가이드 (H3 단위 청킹)
+│   ├── 엔카생활가이드.md    # 메인 가이드
+│   └── 비즈니스.md          # 비즈니스 가이드 ⭐ NEW
+│
+├── 📂 tools/               # 도구 스크립트 ⭐ NEW
+│   ├── generate_metadata.py      # 메타데이터 생성
+│   └── restructure_md_final.py   # MD 파일 정리
 │
 ├── 📂 static/              # 정적 파일
 │   ├── css/style.css       # 스타일시트
@@ -38,16 +80,14 @@ Encar Copilot/
 ├── 📂 templates/           # HTML 템플릿
 │   └── index.html          # 메인 페이지
 │
-├── 📂 archives/            # 백업 파일
-│   ├── 엔카생활가이드_backup_final.md
-│   └── 엔카생활가이드.pdf
+├── 📂 logs/                # 로그 파일 ⭐ NEW
+│   └── encar_copilot.log   # 애플리케이션 로그
 │
 ├── 📂 documentation/       # 프로젝트 문서
 │   ├── 🚀_START_HERE.md
 │   ├── INSTALLATION.md
 │   ├── QUICK_START.md
-│   ├── USAGE_GUIDE.md
-│   ├── SEMANTIC_SEARCH_GUIDE.md
+│   └── USAGE_GUIDE.md
 │   ├── CHANGELOG.md
 │   ├── DEPLOYMENT_CHECKLIST.md
 │   └── PROJECT_STRUCTURE.md
