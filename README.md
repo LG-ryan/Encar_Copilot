@@ -9,7 +9,7 @@
 
 ---
 
-## 🎉 v2.1 주요 개선 사항 (2025-01-17)
+## 🎉 v2.1 주요 개선 사항 (2025-10-17)
 
 ### 🔐 보안 강화
 - ✅ API 키 환경변수화 (비용 폭발 방지)
@@ -300,20 +300,26 @@ Internal Use Only - Encar Corporation
 
 ---
 
-## 👥 팀
+## 👤 제작자
 
-- **Product Owner**: 엔카 HR팀
-- **Developer**: AI Dev Team
-- **Version**: 2.0 (Refactored)
-- **Last Updated**: 2024-10-15
+- **Developer**: Ryan (P&C팀)
+- **Version**: 2.1 (Production Ready)
+- **Last Updated**: 2025-10-17
 
 ---
 
 ## 🔄 버전 히스토리
 
-### v2.0 (2024-10-15) - 🎉 Major Refactoring
-- ⚡ 서비스 계층 도입
-- ⚙️ 설정 파일 분리
+### v2.1 (2025-10-17) - 🚀 Production Ready
+- 🔐 보안 강화 (API 키 환경변수화, 개인정보 마스킹, RBAC)
+- 🛡️ 안정성 강화 (전역 예외 처리, 레이트리밋)
+- 📊 관찰성 강화 (구조화된 로깅, 헬스체크, Prometheus 메트릭)
+- 🗄️ PostgreSQL 마이그레이션 준비
+- 🧹 코드 정리 및 불필요한 파일 제거
+
+### v2.0 (2025-10-15) - 🎉 Initial Release
+- ⚡ LLM 기반 검색 시스템 구축
+- ⚙️ 서비스 계층 도입
 - 🧹 코드 정리 및 최적화
 - 📦 의존성 정리
 
