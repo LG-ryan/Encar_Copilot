@@ -33,18 +33,31 @@ class AnswerResponse(BaseModel):
     link: Optional[str] = Field(None, description="관련 문서 링크")
     category: str = Field(..., description="카테고리")
     confidence_score: float = Field(..., description="신뢰도 점수 (0-1)")
-    related_questions: List[dict] = Field(default_factory=list, description="관련 질문 목록")
+    related_questions: List[str] = Field(default_factory=list, description="관련 질문 목록")
     response_time: float = Field(..., description="응답 시간 (초)")
 
 
 class Feedback(BaseModel):
-    """피드백 모델"""
+    """피드백 모델 (간단한 좋아요/싫어요)"""
     question_id: int = Field(..., description="질문 ID")
     user_question: str = Field(..., description="사용자 질문")
     is_helpful: bool = Field(..., description="도움이 되었는지 여부")
     user_id: Optional[str] = Field(None, description="사용자 ID (익명화)")
     timestamp: str = Field(default_factory=lambda: datetime.now().isoformat())
     comment: Optional[str] = Field(None, description="추가 의견")
+
+
+class DetailedFeedback(BaseModel):
+    """상세 피드백 모델 (싫어요 + 이유 + 의견)"""
+    question_id: int = Field(..., description="질문 ID")
+    user_question: str = Field(..., description="사용자 질문")
+    is_helpful: bool = Field(default=False, description="도움이 되었는지 여부 (항상 False)")
+    reasons: List[str] = Field(default_factory=list, description="싫어요 이유 목록")
+    comment: Optional[str] = Field(None, description="주관식 의견")
+    user_id: Optional[str] = Field(None, description="사용자 ID")
+    user_name: Optional[str] = Field(None, description="사용자 이름")
+    matched_section: Optional[str] = Field(None, description="매칭된 섹션 제목")
+    timestamp: str = Field(default_factory=lambda: datetime.now().isoformat())
 
 
 class User(BaseModel):

@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>캐시 클리어</title>
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+</head>
+<body>
+    <h1>캐시를 클리어하고 있습니다...</h1>
+    <script>
+        // 모든 캐시 삭제
+        if ('caches' in window) {
+            caches.keys().then(function(names) {
+                for (let name of names) {
+                    caches.delete(name);
+                }
+            });
+        }
+        
+        // 로컬스토리지 클리어
+        localStorage.clear();
+        sessionStorage.clear();
+        
+        // 3초 후 메인 페이지로 이동
+        setTimeout(function() {
+            window.location.href = '/';
+        }, 3000);
+    </script>
+    <p>잠시 후 메인 페이지로 이동합니다...</p>
+</body>
+</html>
+
+

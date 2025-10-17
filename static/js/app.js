@@ -29,12 +29,28 @@ document.addEventListener('DOMContentLoaded', () => {
     // 자동완성 초기화
     initAutocomplete();
     
+    // 공유 버튼 이벤트 리스너 (이벤트 위임)
+    document.getElementById('chatMessages').addEventListener('click', (e) => {
+        if (e.target.closest('.share-btn')) {
+            const btn = e.target.closest('.share-btn');
+            const answer = btn.dataset.answer;
+            const department = btn.dataset.department;
+            const link = btn.dataset.link;
+            shareAnswer(answer, department, link);
+        }
+    });
+    
     // 글자 수 카운터 초기화
     initCharCounter();
     
     // 질문 히스토리 초기화
     loadQuestionHistory();
     initHistoryNavigation();
+    
+    // 검색창 동적 힌트 시작 (약간의 딜레이 후)
+    setTimeout(() => {
+        startDynamicPlaceholder();
+    }, 500);
 });
 
 // ==================== 인증 관련 ====================
@@ -91,6 +107,16 @@ async function handleLogin(event) {
             
             // 환영 메시지
             showWelcomeMessage();
+            
+            // 첫 로그인인지 확인
+            const hasSeenGuide = localStorage.getItem('hasSeenGuide');
+            if (!hasSeenGuide) {
+                // 1초 후 가이드 모달 표시
+                setTimeout(() => {
+                    showGuideModal();
+                    localStorage.setItem('hasSeenGuide', 'true');
+                }, 1000);
+            }
         } else {
             errorText.textContent = data.message;
             errorDiv.classList.remove('hidden');
@@ -296,6 +322,7 @@ async function handleQuestion(event) {
     try {
         const startTime = Date.now();
         
+        // ✅ 일반 응답 처리 (스트리밍 비활성화)
         const response = await fetch('/api/ask', {
             method: 'POST',
             headers: {
@@ -308,13 +335,20 @@ async function handleQuestion(event) {
             })
         });
         
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+        
         const data = await response.json();
         const responseTime = ((Date.now() - startTime) / 1000).toFixed(2);
+        console.log(`⏱️ 응답 시간: ${responseTime}초`);
+        console.log('📦 API 응답 데이터:', data);
+        console.log('🔗 유사한 질문:', data.related_questions);
         
         // 로딩 제거
         removeLoading(loadingId);
         
-        // 봇 응답 추가
+        // 봇 메시지 표시 (유사한 질문, 피드백 버튼 포함)
         addBotMessage(data, responseTime);
         
     } catch (error) {
@@ -380,51 +414,28 @@ async function addBotMessage(data, responseTime) {
         data.category,
         responseTime,
         data.question_id || Date.now(),
-        true, // 타이핑 효과 활성화
+        false, // 타이핑 효과 비활성화 (속도 최적화)
         userQuestion // 검색어 전달
     );
     
     chatMessages.appendChild(messageDiv);
     scrollToBottom();
-    
-    // 타이핑 효과 시작
-    const answerElement = messageDiv.querySelector('.answer-text');
-    if (answerElement) {
-        await typeWriter(answerElement, data.answer, 5);
-    }
 }
 
 function createBotMessage(answer, department, link, relatedQuestions, category, responseTime, questionId, enableTyping = false, userQuestion = '') {
     const messageDiv = document.createElement('div');
     messageDiv.className = 'flex justify-start mb-3';
     
-    // 공백 최소화된 텍스트 렌더링
-    let cleanAnswer = answer
-        .replace(/\*\*(.*?)\*\*/g, '<strong class="font-semibold">$1</strong>')
-        .replace(/\*(.*?)\*/g, '<em>$1</em>')
-        .replace(/^#{1,6}\s+/gm, '')
-        .replace(/\n\n+/g, '\n')
-        .replace(/\n/g, '<br>');
+    // Markdown 렌더링 (marked.js 사용)
+    marked.setOptions({
+        breaks: true,  // 줄바꿈 자동 변환
+        gfm: true,     // GitHub Flavored Markdown (표 지원)
+    });
     
-    // 마크다운 테이블 변환 (하이라이팅 전에 처리)
-    cleanAnswer = convertMarkdownTables(cleanAnswer);
+    let renderedAnswer = marked.parse(answer);
     
-    // [태그] 형식을 SVG 아이콘으로 변환
-    cleanAnswer = renderSectionIcons(cleanAnswer);
-    
-    // 검색어 하이라이팅 (사용자 질문에서 키워드 추출)
-    if (userQuestion && userQuestion.trim()) {
-        const keywords = extractKeywords(userQuestion);
-        keywords.forEach(keyword => {
-            if (keyword.length >= 2) {  // 2글자 이상만
-                // 이미 태그 안에 있는 것은 제외 (정규식으로 태그 밖의 텍스트만 매칭)
-                const regex = new RegExp(`(?<!<[^>]*)(${keyword})(?![^<]*>)`, 'gi');
-                cleanAnswer = cleanAnswer.replace(regex, '<mark class="bg-yellow-200 text-gray-900 font-semibold px-0.5 rounded">$1</mark>');
-            }
-        });
-    }
-    
-    const renderedAnswer = cleanAnswer;
+    // 키워드 하이라이트/볼드 처리 제거 (Markdown 자체 볼드로 충분)
+    // LLM이 이미 중요한 키워드는 **볼드**로 마크다운에 표시하므로 별도 처리 불필요
     
     let html = `
         <div class="bg-gradient-to-br from-white to-red-50/30 border border-gray-200 rounded-xl px-5 py-4 max-w-[60%] shadow-md hover:shadow-lg transition-all duration-300">
@@ -436,7 +447,7 @@ function createBotMessage(answer, department, link, relatedQuestions, category, 
                 ${category ? `<span class="text-xs text-gray-500">·</span><span class="text-xs text-gray-500">${escapeHtml(category)}</span>` : ''}
             </div>
             
-            <div class="text-gray-800 text-[13px] leading-relaxed answer-text" data-full-answer="${escapeHtml(renderedAnswer)}">${enableTyping ? '' : createCollapsibleAnswer(renderedAnswer)}</div>
+            <div class="text-gray-800 text-[13px] leading-relaxed answer-text markdown-content" data-full-answer="${escapeHtml(renderedAnswer)}">${enableTyping ? '' : createCollapsibleAnswer(renderedAnswer)}</div>
     `;
     
     if (link) {
@@ -458,31 +469,35 @@ function createBotMessage(answer, department, link, relatedQuestions, category, 
         const isMultiSectionMode = answer.includes('여러 섹션이 있습니다');
         
         html += `
-            <div class="mt-4 pt-3">
-                <div class="flex items-center gap-1.5 mb-3">
-                    <span class="text-base">⭐</span>
-                    <p class="text-sm font-bold text-gray-800">${isMultiSectionMode ? '관련 섹션' : '유사한 질문'}</p>
-                </div>
-                <div class="space-y-2.5">
+            <div class="mt-4 pt-3 border-t border-red-100">
+                <div class="mt-4 p-4 bg-white rounded-lg border border-gray-200">
+                    <div class="flex items-center gap-2 mb-3">
+                        <svg class="w-4 h-4 text-red-600" fill="currentColor" viewBox="0 0 20 20">
+                            <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"></path>
+                        </svg>
+                        <h3 class="text-xs font-bold text-gray-700">${isMultiSectionMode ? '관련 섹션' : '유사한 질문'}</h3>
+                    </div>
+                    <div class="space-y-2">
         `;
         
         const questionsToShow = Array.isArray(relatedQuestions[0]) ? relatedQuestions : relatedQuestions.slice(0, 3);
         questionsToShow.forEach((q, index) => {
             const questionText = typeof q === 'string' ? q : q.question;
             
-            // 통일된 디자인: 회색 배경 + 심플 아이콘
+            // 엔디 첫 인사말과 완전히 동일한 디자인
             html += `
                 <button onclick="askSampleQuestion('${escapeHtml(questionText)}')" 
-                        class="flex items-center gap-3 w-full px-4 py-3 bg-gray-100 hover:bg-gray-200 rounded-lg text-left transition-all hover:shadow-sm">
-                    <svg class="w-5 h-5 text-gray-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        class="flex items-center gap-2 w-full px-3 py-2 bg-gray-50 hover:bg-red-50 border border-gray-200 hover:border-red-300 rounded-lg text-left transition-all hover:-translate-y-0.5 hover:shadow-sm group">
+                    <svg class="w-4 h-4 text-gray-400 group-hover:text-red-600 transition-colors flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
                     </svg>
-                    <span class="text-sm text-gray-800 font-medium">${escapeHtml(questionText)}</span>
+                    <span class="text-xs text-gray-700 group-hover:text-gray-900">${escapeHtml(questionText)}</span>
                 </button>
             `;
         });
         
         html += `
+                    </div>
                 </div>
             </div>
         `;
@@ -492,7 +507,7 @@ function createBotMessage(answer, department, link, relatedQuestions, category, 
     if (questionId) {
         html += `
             <div class="flex items-center gap-2 mt-4 pt-3 border-t border-gray-200">
-                <button onclick="submitFeedback(${questionId}, true, '${escapeHtml(answer).replace(/'/g, "\\'")}')" 
+                <button onclick="submitFeedback(${questionId}, true, '${escapeHtml(userQuestion).replace(/'/g, "\\'")}')" 
                         class="feedback-btn relative overflow-hidden bg-gray-100 hover:bg-green-50 text-gray-600 hover:text-green-600 p-2.5 rounded-lg hover:-translate-y-1 hover:shadow-md active:translate-y-0 transition-all duration-200" 
                         title="도움됨"
                         data-feedback-id="${questionId}-like">
@@ -500,7 +515,7 @@ function createBotMessage(answer, department, link, relatedQuestions, category, 
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 10h4.764a2 2 0 011.789 2.894l-3.5 7A2 2 0 0115.263 21h-4.017c-.163 0-.326-.02-.485-.06L7 20m7-10V5a2 2 0 00-2-2h-.095c-.5 0-.905.405-.905.905 0 .714-.211 1.412-.608 2.006L7 11v9m7-10h-2M7 20H5a2 2 0 01-2-2v-6a2 2 0 012-2h2.5"></path>
                     </svg>
                 </button>
-                <button onclick="submitFeedback(${questionId}, false, '${escapeHtml(answer).replace(/'/g, "\\'")}')" 
+                <button onclick="submitFeedback(${questionId}, false, '${escapeHtml(userQuestion).replace(/'/g, "\\'")}')" 
                         class="feedback-btn relative overflow-hidden bg-gray-100 hover:bg-red-50 text-gray-600 hover:text-red-600 p-2.5 rounded-lg hover:-translate-y-1 hover:shadow-md active:translate-y-0 transition-all duration-200" 
                         title="도움안됨"
                         data-feedback-id="${questionId}-dislike">
@@ -508,9 +523,11 @@ function createBotMessage(answer, department, link, relatedQuestions, category, 
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14H5.236a2 2 0 01-1.789-2.894l3.5-7A2 2 0 018.736 3h4.018a2 2 0 01.485.06l3.76.94m-7 10v5a2 2 0 002 2h.096c.5 0 .905-.405.905-.904 0-.715.211-1.413.608-2.008L17 13V4m-7 10h2m5-10h2a2 2 0 012 2v6a2 2 0 01-2 2h-2.5"></path>
                     </svg>
                 </button>
-                <button onclick="shareAnswer('${escapeHtml(answer).replace(/'/g, "\\'")}', '${escapeHtml(department).replace(/'/g, "\\'")}', '${escapeHtml(link || '').replace(/'/g, "\\'")}')"
-                        class="relative overflow-hidden bg-gray-100 hover:bg-blue-50 text-gray-600 hover:text-blue-600 p-2.5 rounded-lg hover:-translate-y-1 hover:shadow-md active:translate-y-0 transition-all duration-200" 
-                        title="공유">
+                <button class="share-btn relative overflow-hidden bg-gray-100 hover:bg-blue-50 text-gray-600 hover:text-blue-600 p-2.5 rounded-lg hover:-translate-y-1 hover:shadow-md active:translate-y-0 transition-all duration-200" 
+                        title="공유"
+                        data-answer="${escapeHtml(answer)}"
+                        data-department="${escapeHtml(department)}"
+                        data-link="${escapeHtml(link || '')}">
                     <svg class="w-5 h-5 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z"></path>
                     </svg>
@@ -599,21 +616,43 @@ function scrollToBottom() {
 
 async function submitFeedback(questionId, isHelpful, userQuestion) {
     console.log('submitFeedback 호출:', questionId, isHelpful);
+    
+    const likeBtn = document.querySelector(`[data-feedback-id="${questionId}-like"]`);
+    const dislikeBtn = document.querySelector(`[data-feedback-id="${questionId}-dislike"]`);
+    
+    // 이미 선택된 버튼을 다시 클릭하면 취소
+    const currentBtn = isHelpful ? likeBtn : dislikeBtn;
+    const isAlreadySelected = currentBtn.classList.contains('bg-green-100') || currentBtn.classList.contains('bg-red-100');
+    
+    if (isAlreadySelected) {
+        // 피드백 취소
+        showToast('✅ 피드백이 취소되었습니다');
+        resetFeedbackButtons(questionId);
+        return;
+    }
+    
     try {
+        // 즉시 Toast 메시지 표시
+        showToast(isHelpful ? '✅ 도움이 되었다니 기쁩니다!' : '📝 소중한 의견 감사합니다!');
+        
         // 피드백 메시지 표시
         const feedbackMsg = document.getElementById(`feedback-msg-${questionId}`);
-        console.log('feedbackMsg 요소:', feedbackMsg);
         if (feedbackMsg) {
             feedbackMsg.classList.remove('hidden');
             feedbackMsg.textContent = '✓ 의견 주셔서 감사합니다!';
         }
         
-        // 버튼 비활성화 (중복 클릭 방지)
-        const buttons = document.querySelectorAll(`[data-feedback-id^="${questionId}"]`);
-        buttons.forEach(btn => {
-            btn.disabled = true;
-            btn.classList.add('opacity-50', 'cursor-not-allowed');
-        });
+        // 이전 선택 초기화
+        resetFeedbackButtons(questionId);
+        
+        // 클릭된 버튼만 강조
+        if (isHelpful) {
+            likeBtn.classList.add('ring-2', 'ring-green-500', 'text-green-600', 'bg-green-100');
+            likeBtn.classList.remove('text-gray-600');
+        } else {
+            dislikeBtn.classList.add('ring-2', 'ring-red-500', 'text-red-600', 'bg-red-100');
+            dislikeBtn.classList.remove('text-gray-600');
+        }
         
         const response = await fetch('/api/feedback', {
             method: 'POST',
@@ -648,7 +687,22 @@ async function submitFeedback(questionId, isHelpful, userQuestion) {
         }
     } catch (error) {
         console.error('피드백 제출 오류:', error);
+        showToast('❌ 피드백 전송 실패. 다시 시도해주세요.');
     }
+}
+
+function resetFeedbackButtons(questionId) {
+    const buttons = document.querySelectorAll(`[data-feedback-id^="${questionId}"]`);
+    buttons.forEach(btn => {
+        btn.classList.remove(
+            'ring-2', 'ring-green-500', 'ring-red-500',
+            'text-green-600', 'text-red-600',
+            'bg-green-100', 'bg-red-100',
+            'opacity-75', 'cursor-not-allowed'
+        );
+        btn.classList.add('text-gray-600');
+        btn.disabled = false;
+    });
 }
 
 function showDetailedFeedbackForm(questionId, userQuestion) {
@@ -716,13 +770,28 @@ async function submitDetailedFeedback(questionId, userQuestion) {
         user_question: userQuestion,
         is_helpful: false,
         reasons: reasons,
-        comment: comment,
-        user_id: currentUser ? currentUser.employee_id : null
+        comment: comment || null,
+        user_id: currentUser ? currentUser.employee_id : null,
+        matched_section: null  // 나중에 답변 데이터에서 가져올 수 있음
     };
     
     try {
-        // 실제로는 별도의 API 엔드포인트로 전송
-        console.log('상세 피드백:', detailedFeedback);
+        // 상세 피드백 API 호출
+        const response = await fetch('/api/feedback/detailed', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': sessionToken || ''
+            },
+            body: JSON.stringify(detailedFeedback)
+        });
+        
+        if (!response.ok) {
+            throw new Error('상세 피드백 전송 실패');
+        }
+        
+        const result = await response.json();
+        console.log('✅ 상세 피드백 저장 성공:', result);
         
         // 피드백 폼 제거
         feedbackDiv.remove();
@@ -731,7 +800,7 @@ async function submitDetailedFeedback(questionId, userQuestion) {
         showToast('소중한 의견 감사합니다! 개선에 참고하겠습니다. 🙏');
         
     } catch (error) {
-        console.error('상세 피드백 제출 오류:', error);
+        console.error('❌ 상세 피드백 제출 오류:', error);
         showToast('피드백 전송에 실패했습니다. 다시 시도해주세요.');
     }
 }
@@ -1068,7 +1137,8 @@ function initHistoryNavigation() {
 
 // ==================== 카테고리 필터 ====================
 
-function filterCategory(category) {
+async function filterCategory(category) {
+    console.log('[filterCategory] 호출됨:', category);
     selectedCategory = category;
     
     // 모든 버튼 스타일 리셋
@@ -1096,6 +1166,112 @@ function filterCategory(category) {
     
     // 예시 질문 필터링
     filterExampleQuestions(category);
+    
+    // 카테고리 클릭 시 대표 질문 표시 (전체 제외)
+    if (category !== 'all') {
+        console.log('[filterCategory] showCategoryQuestions 호출 예정:', category);
+        await showCategoryQuestions(category);
+    }
+}
+
+/**
+ * 카테고리별 대표 질문 표시
+ */
+async function showCategoryQuestions(category) {
+    console.log('[showCategoryQuestions] 시작:', category);
+    try {
+        const url = `/api/category/${encodeURIComponent(category)}/questions`;
+        console.log('[showCategoryQuestions] 요청 URL:', url);
+        console.log('[showCategoryQuestions] sessionToken:', sessionToken ? '있음' : '없음');
+        
+        const response = await fetch(url, {
+            headers: {
+                'Authorization': sessionToken ? `Bearer ${sessionToken}` : ''
+            }
+        });
+        
+        console.log('[showCategoryQuestions] 응답 상태:', response.status);
+        
+        const data = await response.json();
+        console.log('[showCategoryQuestions] 응답 데이터:', data);
+        
+        if (!data.success || !data.questions || data.questions.length === 0) {
+            console.log('[showCategoryQuestions] 질문 없음 또는 실패');
+            return;
+        }
+        
+        // 대화방에 카테고리 질문 메시지 추가
+        console.log('[showCategoryQuestions] 질문 메시지 추가:', data.questions.length, '개');
+        addCategoryQuestionsMessage(category, data.questions);
+        
+    } catch (error) {
+        console.error('[showCategoryQuestions] 오류:', error);
+    }
+}
+
+/**
+ * 카테고리 대표 질문 메시지 생성 (엔디 인사말 '많이 묻는 질문'과 동일한 디자인)
+ */
+function addCategoryQuestionsMessage(category, questions) {
+    const chatMessages = document.getElementById('chatMessages');
+    const messageDiv = document.createElement('div');
+    messageDiv.className = 'flex justify-start mb-3';
+    
+    // 카테고리별 아이콘 (사람 아이콘으로 통일)
+    const categoryIcons = {
+        'HR': '👤',
+        'IT': '💻',
+        '총무': '📋',
+        '복리후생': '🎁',
+        '비즈니스': '💼',
+        '기업 소개': '🏢'
+    };
+    
+    const categoryIcon = categoryIcons[category] || '📌';
+    
+    let html = `
+        <div class="bg-gradient-to-br from-white to-red-50/30 border border-gray-200 rounded-xl px-5 py-4 max-w-[60%] shadow-md hover:shadow-lg transition-all duration-300">
+            <div class="flex items-center space-x-2 mb-2">
+                <div class="w-7 h-7 bg-gradient-to-br from-red-600 to-red-700 rounded-full flex items-center justify-center shadow-sm">
+                    <span class="text-white text-sm font-bold">E</span>
+                </div>
+                <span class="text-sm font-semibold text-gray-800">엔디(Endy)</span>
+                <span class="text-xs text-gray-500">·</span>
+                <span class="text-xs text-gray-500">${category}</span>
+            </div>
+            
+            <div class="mt-4 p-4 bg-white rounded-lg border border-gray-200">
+                <div class="flex items-center gap-2 mb-3">
+                    <svg class="w-4 h-4 text-red-600" fill="currentColor" viewBox="0 0 20 20">
+                        <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"></path>
+                    </svg>
+                    <h3 class="text-xs font-bold text-gray-700">${categoryIcon} ${category} 자주 묻는 질문</h3>
+                </div>
+                <div class="space-y-2">
+    `;
+    
+    // 질문 버튼 생성 (최대 10개, 엔디 인사말과 동일한 스타일)
+    questions.slice(0, 10).forEach((question, index) => {
+        html += `
+            <button onclick="askSampleQuestion('${escapeHtml(question)}')" 
+                    class="flex items-center gap-2 w-full px-3 py-2 bg-gray-50 hover:bg-red-50 border border-gray-200 hover:border-red-300 rounded-lg text-left transition-all hover:-translate-y-0.5 hover:shadow-sm group">
+                <svg class="w-4 h-4 text-gray-400 group-hover:text-red-600 transition-colors flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                </svg>
+                <span class="text-xs text-gray-700 group-hover:text-gray-900">${escapeHtml(question)}</span>
+            </button>
+        `;
+    });
+    
+    html += `
+                </div>
+            </div>
+        </div>
+    `;
+    
+    messageDiv.innerHTML = html;
+    chatMessages.appendChild(messageDiv);
+    scrollToBottom();
 }
 
 function filterExampleQuestions(category) {
@@ -1115,7 +1291,18 @@ function filterExampleQuestions(category) {
 // ==================== 답변 공유 ====================
 
 async function shareAnswer(answer, department, link) {
-    const shareText = `📌 엔디(Endy)의 답변\n\n${answer}\n\n담당: ${department}${link ? `\n\n📄 상세 문서: ${link}` : ''}\n\n✨ Encar Copilot으로 더 많은 정보를 확인하세요!`;
+    // Markdown을 일반 텍스트로 변환 (간단한 변환)
+    const plainTextAnswer = answer
+        .replace(/\*\*(.*?)\*\*/g, '$1')  // 볼드 제거
+        .replace(/\*(.*?)\*/g, '$1')  // 이탤릭 제거
+        .replace(/#{1,6}\s+/g, '')  // 헤더 제거
+        .replace(/\|/g, ' ')  // 표 구분자 제거
+        .trim();
+    
+    const shareText = `📌 엔디(Endy)의 답변\n\n${plainTextAnswer}\n\n담당: ${department}${link ? `\n\n📄 상세 문서: ${link}` : ''}\n\n✨ Encar Copilot: ${window.location.href}`;
+    
+    // 즉시 시각적 피드백
+    showToast('📋 클립보드에 복사 중...');
     
     // Web Share API 지원 확인
     if (navigator.share) {
@@ -1125,7 +1312,7 @@ async function shareAnswer(answer, department, link) {
                 text: shareText,
                 url: window.location.href
             });
-            showToast('답변이 공유되었습니다! 📤');
+            showToast('✅ 답변이 공유되었습니다!');
         } catch (error) {
             if (error.name !== 'AbortError') {
                 // 공유 실패 시 클립보드로 폴백
@@ -1141,7 +1328,7 @@ async function shareAnswer(answer, department, link) {
 function copyToClipboard(text) {
     if (navigator.clipboard && navigator.clipboard.writeText) {
         navigator.clipboard.writeText(text).then(() => {
-            showToast('답변이 클립보드에 복사되었습니다! 📋');
+            showToast('✅ 클립보드에 복사되었습니다!');
         }).catch(() => {
             // Fallback: 텍스트 영역 사용
             fallbackCopyToClipboard(text);
@@ -1161,9 +1348,9 @@ function fallbackCopyToClipboard(text) {
     
     try {
         document.execCommand('copy');
-        showToast('답변이 클립보드에 복사되었습니다! 📋');
+        showToast('✅ 클립보드에 복사되었습니다!');
     } catch (err) {
-        showToast('복사에 실패했습니다. 다시 시도해주세요.');
+        showToast('❌ 복사 실패. 다시 시도해주세요.');
     }
     
     document.body.removeChild(textArea);
@@ -1276,6 +1463,68 @@ function toggleCollapse(id) {
 
 // 전역 스코프에 함수 등록
 window.toggleCollapse = toggleCollapse;
+window.showGuideModal = showGuideModal;
+window.hideGuideModal = hideGuideModal;
+window.filterCategory = filterCategory;
+
+// ==================== 가이드 모달 ====================
+
+function showGuideModal() {
+    document.getElementById('guideModal').classList.remove('hidden');
+}
+
+function hideGuideModal() {
+    document.getElementById('guideModal').classList.add('hidden');
+}
+
+// ==================== 검색창 동적 힌트 ====================
+
+/**
+ * 검색창 플레이스홀더를 동적으로 변경하여 질문 예시 제공
+ */
+function startDynamicPlaceholder() {
+    const input = document.getElementById('questionInput');
+    if (!input) return;
+    
+    const hints = [
+        '연차는 언제 쓸 수 있어?',
+        '급여명세서 어디서 확인해?',
+        '출장비 신청 방법은?',
+        '휴가 신청은 어떻게 해?',
+        '경조사 지원은 뭐가 있어?',
+        '근무시간은 몇 시부터야?',
+        '사내 복리후생 알려줘',
+        '그룹웨어 로그인 어떻게 해?',
+        'VPN 설정 방법 알려줘',
+        '비교견적 서비스가 뭐야?'
+    ];
+    
+    let currentIndex = 0;
+    const defaultPlaceholder = '엔디(Endy)에게 물어보기...';
+    
+    // 3초마다 힌트 변경
+    setInterval(() => {
+        // 입력 중이거나 포커스 되어 있으면 변경하지 않음
+        if (input.value.trim() !== '' || document.activeElement === input) {
+            return;
+        }
+        
+        currentIndex = (currentIndex + 1) % hints.length;
+        input.placeholder = hints[currentIndex];
+        
+        // 5초 후 기본 플레이스홀더로 복원
+        setTimeout(() => {
+            if (input.value.trim() === '' && document.activeElement !== input) {
+                input.placeholder = defaultPlaceholder;
+            }
+        }, 2500);
+    }, 5000);
+    
+    // 포커스 시 기본 플레이스홀더로 복원
+    input.addEventListener('focus', () => {
+        input.placeholder = defaultPlaceholder;
+    });
+}
 
 /**
  * 마크다운 테이블을 HTML 테이블로 변환
@@ -1284,76 +1533,18 @@ window.toggleCollapse = toggleCollapse;
  * [태그] 형식을 대형 배지와 스타일링된 박스로 변환
  */
 function renderSectionIcons(html) {
-    // 구분선(---) 완전 제거
-    html = html.replace(/---/g, '');
-    html = html.replace(/<br>\s*<br>/g, '<br>'); // 연속 줄바꿈 정리
-    
-    const icons = {
-        '[요약]': `
-            <div class="section-divider"></div>
-            <div class="section-box mb-5 p-5 bg-gradient-to-br from-blue-50 to-blue-100/50 border-2 border-blue-400 rounded-2xl shadow-sm">
-                <div class="flex items-center gap-3 mb-4">
-                    <div class="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-full shadow-md">
-                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                        </svg>
-                        <span class="font-bold text-base">요약</span>
-                    </div>
-                </div>
-                <div class="section-content text-gray-900 font-medium text-base leading-relaxed">`,
-        
-        '[상세]': `
-            </div></div>
-            <div class="section-divider"></div>
-            <div class="section-box mb-5 p-5 bg-white border-2 border-gray-300 rounded-2xl shadow-sm">
-                <div class="flex items-center gap-3 mb-4">
-                    <div class="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-full shadow-md">
-                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
-                        </svg>
-                        <span class="font-bold text-base">상세</span>
-                    </div>
-                </div>
-                <div class="section-content text-gray-800 text-sm leading-relaxed">`,
-        
-        '[참고]': `
-            </div></div>
-            <div class="section-divider"></div>
-            <div class="section-box mb-5 p-5 bg-gradient-to-br from-amber-50 to-yellow-100/50 border-2 border-yellow-400 rounded-2xl shadow-sm">
-                <div class="flex items-center gap-3 mb-4">
-                    <div class="flex items-center gap-2 px-4 py-2 bg-amber-600 text-white rounded-full shadow-md">
-                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"></path>
-                        </svg>
-                        <span class="font-bold text-base">참고</span>
-                    </div>
-                </div>
-                <div class="section-content text-gray-800 text-sm leading-relaxed">`,
-        
-        '[주의사항]': `
-            </div></div>
-            <div class="section-divider"></div>
-            <div class="section-box mb-5 p-5 bg-gradient-to-br from-red-50 to-rose-100/50 border-2 border-red-400 rounded-2xl shadow-sm">
-                <div class="flex items-center gap-3 mb-4">
-                    <div class="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-full shadow-md">
-                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
-                        </svg>
-                        <span class="font-bold text-base">주의사항</span>
-                    </div>
-                </div>
-                <div class="section-content text-gray-800 text-sm leading-relaxed">`
+    // 미니멀 인라인 배지로 변경 (작은 회색 배지, 한 줄 띄우기)
+    const badges = {
+        '[요약]': '<br><span class="inline-block px-2 py-1 bg-gray-200 text-gray-700 text-xs font-medium rounded mr-1">요약</span> ',
+        '[상세]': '<br><span class="inline-block px-2 py-1 bg-gray-200 text-gray-700 text-xs font-medium rounded mr-1">상세</span> ',
+        '[참고]': '<br><span class="inline-block px-2 py-1 bg-gray-200 text-gray-700 text-xs font-medium rounded mr-1">참고</span> ',
+        '[주의사항]': '<br><span class="inline-block px-2 py-1 bg-gray-200 text-gray-700 text-xs font-medium rounded mr-1">주의사항</span> '
     };
     
-    // 각 태그를 대형 배지 박스로 교체
-    for (const [tag, iconHtml] of Object.entries(icons)) {
+    // 각 태그를 인라인 배지로 교체
+    for (const [tag, badgeHtml] of Object.entries(badges)) {
         const regex = new RegExp(tag.replace(/[[\]]/g, '\\$&'), 'g');
-        html = html.replace(regex, iconHtml);
-    }
-    
-    // 마지막 섹션 닫기
-    if (html.includes('section-box')) {
-        html += '</div></div>';
+        html = html.replace(regex, badgeHtml);
     }
     
     return html;
@@ -1363,52 +1554,48 @@ function convertMarkdownTables(text) {
     // <br> 태그를 임시로 줄바꿈으로 복원
     let content = text.replace(/<br>/g, '\n');
     
-    // 마크다운 테이블 패턴 매칭
-    // | 헤더1 | 헤더2 |
-    // | 데이터1 | 데이터2 |
-    const tableRegex = /(\|[^\n]+\|(?:\n\|[^\n]+\|)+)/g;
+    // 개선된 마크다운 테이블 패턴 (더 유연하게)
+    const tableRegex = /\|(.+?)\|[\r\n]+\|[-:\s|]+\|[\r\n]+((?:\|.+?\|[\r\n]*)+)/g;
     
-    content = content.replace(tableRegex, (match) => {
-        const rows = match.trim().split('\n').filter(row => row.trim());
+    content = content.replace(tableRegex, (match, headerRow, bodyRows) => {
+        // 헤더 파싱
+        const headers = headerRow.split('|').map(h => h.trim()).filter(h => h);
         
-        if (rows.length < 2) return match; // 테이블이 너무 짧으면 그대로 반환
+        // 본문 파싱
+        const rows = bodyRows.trim().split('\n').filter(r => r.trim() && r.includes('|'));
         
-        // 구분선(|---|---|) 확인
-        const hasSeparator = rows[1].includes('---') || rows[1].includes(':--');
-        const startIndex = hasSeparator ? 2 : 1; // 구분선이 있으면 2번째 행부터, 없으면 1번째 행부터
+        if (headers.length === 0 || rows.length === 0) return match;
         
-        let html = '<div class="table-wrapper my-3 overflow-x-auto"><table class="min-w-full border-collapse border border-gray-300 text-sm">';
+        // HTML 테이블 생성
+        let html = '<div class="my-4 overflow-x-auto rounded-lg border border-gray-300 shadow-sm">';
+        html += '<table class="min-w-full border-collapse text-sm">';
         
-        // 헤더 행
-        if (rows.length > 0) {
-            const headerCells = rows[0].split('|').filter(cell => cell.trim());
-            if (headerCells.length > 0) {
-                html += '<thead class="bg-gradient-to-r from-red-50 to-orange-50"><tr>';
-                headerCells.forEach(cell => {
-                    html += `<th class="border border-gray-300 px-3 py-2 text-left font-semibold text-gray-800">${cell.trim()}</th>`;
-                });
-                html += '</tr></thead>';
-            }
-        }
+        // 헤더
+        html += '<thead class="bg-gradient-to-r from-red-50 to-orange-50"><tr>';
+        headers.forEach(header => {
+            html += `<th class="border border-gray-300 px-4 py-2.5 text-left font-semibold text-gray-800">${header}</th>`;
+        });
+        html += '</tr></thead>';
         
-        // 데이터 행
-        html += '<tbody>';
-        for (let i = startIndex; i < rows.length; i++) {
-            const cells = rows[i].split('|').filter(cell => cell.trim());
+        // 본문
+        html += '<tbody class="bg-white">';
+        rows.forEach((row, idx) => {
+            const cells = row.split('|').map(c => c.trim()).filter(c => c);
             if (cells.length > 0) {
-                html += '<tr class="hover:bg-gray-50 transition-colors">';
+                const bgClass = idx % 2 === 0 ? 'bg-white' : 'bg-gray-50';
+                html += `<tr class="${bgClass} hover:bg-blue-50 transition-colors">`;
                 cells.forEach(cell => {
-                    html += `<td class="border border-gray-300 px-3 py-2 text-gray-700">${cell.trim()}</td>`;
+                    html += `<td class="border border-gray-300 px-4 py-2.5 text-gray-700">${cell}</td>`;
                 });
                 html += '</tr>';
             }
-        }
+        });
         html += '</tbody></table></div>';
         
         return html;
     });
     
-    // 줄바꿈을 다시 <br>로 변환 (테이블 밖의 내용)
+    // 줄바꿈을 다시 <br>로 변환
     return content.replace(/\n/g, '<br>');
 }
 

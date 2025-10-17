@@ -3,19 +3,67 @@
 간단한 사번/이름 기반 인증 (MVP)
 """
 import secrets
+import json
+import os
 from typing import Optional, Dict
 from datetime import datetime, timedelta
+from pathlib import Path
 from models import User, LoginRequest, LoginResponse
 from database import db
 
 
 class AuthManager:
-    """인증 관리 클래스"""
+    """인증 관리 클래스 (세션 영속화 지원)"""
     
     def __init__(self):
-        # 세션 저장소 (메모리 기반, 실제로는 Redis 등 사용 권장)
-        self.sessions: Dict[str, Dict] = {}
+        # 세션 파일 경로
+        self.session_file = Path("data/sessions.json")
         self.session_timeout = timedelta(hours=8)  # 8시간 세션 유지
+        
+        # 세션 저장소 (파일에서 로드)
+        self.sessions: Dict[str, Dict] = self._load_sessions()
+    
+    def _load_sessions(self) -> Dict:
+        """세션 파일에서 로드"""
+        if not self.session_file.exists():
+            return {}
+        
+        try:
+            with open(self.session_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                
+                # datetime 문자열을 객체로 복원
+                for token, session in data.items():
+                    session['login_time'] = datetime.fromisoformat(session['login_time'])
+                    session['expire_time'] = datetime.fromisoformat(session['expire_time'])
+                
+                print(f"✅ {len(data)}개 세션 로드 완료")
+                return data
+        except Exception as e:
+            print(f"⚠️  세션 로드 실패: {e}, 새로 시작합니다")
+            return {}
+    
+    def _save_sessions(self):
+        """세션 파일에 저장"""
+        try:
+            # data 디렉토리 확인
+            self.session_file.parent.mkdir(parents=True, exist_ok=True)
+            
+            # datetime 객체를 문자열로 변환
+            data = {}
+            for token, session in self.sessions.items():
+                data[token] = {
+                    'user': session['user'],
+                    'login_time': session['login_time'].isoformat(),
+                    'expire_time': session['expire_time'].isoformat()
+                }
+            
+            # 파일에 저장
+            with open(self.session_file, 'w', encoding='utf-8') as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+                
+        except Exception as e:
+            print(f"⚠️  세션 저장 실패: {e}")
     
     def generate_session_token(self) -> str:
         """세션 토큰 생성"""
@@ -61,6 +109,9 @@ class AuthManager:
             "expire_time": datetime.now() + self.session_timeout
         }
         
+        # 파일에 영속화
+        self._save_sessions()
+        
         return LoginResponse(
             success=True,
             message="로그인 성공",
@@ -80,6 +131,8 @@ class AuthManager:
         """
         if session_token in self.sessions:
             del self.sessions[session_token]
+            # 파일에 영속화
+            self._save_sessions()
             return True
         return False
     
@@ -133,6 +186,10 @@ class AuthManager:
         
         for token in expired_tokens:
             del self.sessions[token]
+        
+        if expired_tokens:
+            # 파일에 영속화
+            self._save_sessions()
         
         return len(expired_tokens)
 

@@ -56,6 +56,12 @@ logs/
 *.tmp
 *.bak
 *.backup
+test_*.py
+quick_test.py
 
 # Jupyter Notebook
 .ipynb_checkpoints
+
+# 백업 폴더
+backups/
+archives/

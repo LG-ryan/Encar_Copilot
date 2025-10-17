@@ -1,0 +1,13 @@
+{
+  "ubD5ayOf4rkEJkW2ftxD2bglPDq0pocreRheZab4gYI": {
+    "user": {
+      "employee_id": "2024001",
+      "name": "김철수",
+      "department": "개발팀",
+      "email": "kim@encar.com",
+      "created_at": "2024-01-01T00:00:00"
+    },
+    "login_time": "2025-10-17T13:23:48.519522",
+    "expire_time": "2025-10-17T21:23:50.445181"
+  }
+}

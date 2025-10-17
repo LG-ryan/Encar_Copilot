@@ -1,10 +1,13 @@
 """
 데이터베이스 관리 모듈
 JSON 파일을 사용한 간단한 데이터베이스 관리 (MVP)
+파일 잠금을 통한 동시 쓰기 방지 기능 포함
 """
 import json
 import os
+import time
 from typing import List, Optional, Dict
+from pathlib import Path
 from models import FAQItem, User, Feedback
 
 
@@ -21,8 +24,51 @@ class Database:
         if not os.path.exists(self.data_dir):
             os.makedirs(self.data_dir)
     
+    def _get_lock_file(self, file_path: str) -> str:
+        """잠금 파일 경로 생성"""
+        return f"{file_path}.lock"
+    
+    def _acquire_lock(self, file_path: str, timeout: float = 5.0) -> bool:
+        """
+        파일 잠금 획득 (단순 파일 기반 잠금)
+        
+        Args:
+            file_path: 잠글 파일 경로
+            timeout: 최대 대기 시간 (초)
+        
+        Returns:
+            잠금 획득 성공 여부
+        """
+        lock_file = self._get_lock_file(file_path)
+        start_time = time.time()
+        
+        while True:
+            try:
+                # 잠금 파일이 없으면 생성 (원자적 연산)
+                fd = os.open(lock_file, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+                os.write(fd, str(os.getpid()).encode())
+                os.close(fd)
+                return True
+            except FileExistsError:
+                # 잠금 파일이 이미 존재하면 대기
+                if time.time() - start_time > timeout:
+                    print(f"⚠️  파일 잠금 타임아웃: {file_path}")
+                    return False
+                time.sleep(0.01)  # 10ms 대기
+    
+    def _release_lock(self, file_path: str):
+        """파일 잠금 해제"""
+        lock_file = self._get_lock_file(file_path)
+        try:
+            os.remove(lock_file)
+        except FileNotFoundError:
+            pass  # 이미 삭제됨
+    
     def _read_json(self, file_path: str) -> dict:
-        """JSON 파일 읽기"""
+        """JSON 파일 읽기 (잠금 사용)"""
+        if not self._acquire_lock(file_path):
+            return {}
+        
         try:
             with open(file_path, 'r', encoding='utf-8') as f:
                 return json.load(f)
@@ -30,11 +76,19 @@ class Database:
             return {}
         except json.JSONDecodeError:
             return {}
+        finally:
+            self._release_lock(file_path)
     
     def _write_json(self, file_path: str, data: dict):
-        """JSON 파일 쓰기"""
-        with open(file_path, 'w', encoding='utf-8') as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
+        """JSON 파일 쓰기 (잠금 사용)"""
+        if not self._acquire_lock(file_path):
+            raise IOError(f"파일 잠금 획득 실패: {file_path}")
+        
+        try:
+            with open(file_path, 'w', encoding='utf-8') as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+        finally:
+            self._release_lock(file_path)
     
     # FAQ 관련 메서드
     def get_all_faqs(self) -> List[FAQItem]:
@@ -139,28 +193,96 @@ class Database:
             print(f"피드백 추가 중 오류 발생: {e}")
             return False
     
+    def add_detailed_feedback(self, feedback) -> bool:
+        """상세 피드백 추가 (싫어요 + 이유 + 의견)"""
+        try:
+            data = self._read_json(self.feedback_file)
+            
+            # 상세 피드백 저장
+            detailed_feedbacks = data.get("detailed_feedbacks", [])
+            feedback_dict = feedback.dict()
+            feedback_dict["id"] = f"fb_{feedback.question_id}"
+            detailed_feedbacks.append(feedback_dict)
+            data["detailed_feedbacks"] = detailed_feedbacks
+            
+            self._write_json(self.feedback_file, data)
+            print(f"✅ 상세 피드백 저장: 질문='{feedback.user_question}', 이유={feedback.reasons}")
+            return True
+        except Exception as e:
+            print(f"❌ 상세 피드백 추가 중 오류 발생: {e}")
+            return False
+    
     def get_feedback_stats(self) -> Dict:
-        """피드백 통계 조회"""
-        feedbacks = self.get_all_feedbacks()
-        total = len(feedbacks)
-        if total == 0:
+        """피드백 통계 조회 (개선된 버전)"""
+        try:
+            data = self._read_json(self.feedback_file)
+            feedbacks = data.get("feedbacks", [])
+            detailed_feedbacks = data.get("detailed_feedbacks", [])
+            
+            total = len(feedbacks)
+            positive = sum(1 for f in feedbacks if f.get("is_helpful", False))
+            negative = total - positive
+            
+            # 상세 피드백 통계
+            negative_reasons = {}
+            sections_needing_improvement = {}
+            
+            for df in detailed_feedbacks:
+                # 이유별 집계
+                for reason in df.get("reasons", []):
+                    negative_reasons[reason] = negative_reasons.get(reason, 0) + 1
+                
+                # 섹션별 집계
+                section = df.get("matched_section", "알 수 없음")
+                sections_needing_improvement[section] = sections_needing_improvement.get(section, 0) + 1
+            
+            # 개선 필요 섹션 정렬 (많은 순)
+            sorted_sections = sorted(
+                [{"section": k, "count": v} for k, v in sections_needing_improvement.items()],
+                key=lambda x: x["count"],
+                reverse=True
+            )
+            
+            return {
+                "total": total,
+                "positive": positive,
+                "negative": negative,
+                "positive_rate": round(positive / total * 100, 1) if total > 0 else 0,
+                "detailed_feedbacks_count": len(detailed_feedbacks),
+                "negative_reasons": negative_reasons,
+                "sections_needing_improvement": sorted_sections[:10]  # 상위 10개
+            }
+        except Exception as e:
+            print(f"❌ 통계 조회 중 오류 발생: {e}")
             return {
                 "total": 0,
                 "positive": 0,
                 "negative": 0,
-                "positive_rate": 0
+                "positive_rate": 0,
+                "detailed_feedbacks_count": 0,
+                "negative_reasons": {},
+                "sections_needing_improvement": []
             }
-        
-        positive = sum(1 for f in feedbacks if f.is_helpful)
-        negative = total - positive
-        positive_rate = (positive / total) * 100
-        
-        return {
-            "total": total,
-            "positive": positive,
-            "negative": negative,
-            "positive_rate": round(positive_rate, 2)
-        }
+    
+    def get_detailed_feedbacks(self, limit: int = 100) -> List[Dict]:
+        """상세 피드백 조회"""
+        try:
+            data = self._read_json(self.feedback_file)
+            detailed_feedbacks = data.get("detailed_feedbacks", [])
+            return detailed_feedbacks[:limit]
+        except Exception as e:
+            print(f"❌ 상세 피드백 조회 중 오류 발생: {e}")
+            return []
+    
+    def get_negative_feedbacks(self) -> List[Dict]:
+        """부정 피드백만 조회"""
+        try:
+            data = self._read_json(self.feedback_file)
+            detailed_feedbacks = data.get("detailed_feedbacks", [])
+            return [f for f in detailed_feedbacks if not f.get("is_helpful", True)]
+        except Exception as e:
+            print(f"❌ 부정 피드백 조회 중 오류 발생: {e}")
+            return []
 
 
 # 싱글톤 인스턴스
